@@ -162,12 +162,26 @@ inotifywait -m -e create "$COMMANDS_DIR" | while read -r dir event file; do
                 touch "$COMMANDS_DIR/svg-to-png-failed"
             fi
             ;;
+        package)
+            TARGET_DIR=$(cat "$COMMANDS_DIR/$file")
+            rm -f "$COMMANDS_DIR/$file"
+            cd "$PROJECT_DIR/$TARGET_DIR"
+            echo "--- Package started: $(date) ---" > "$LOGS_DIR/package.log"
+            if "$SANDBOX_DIR/package.sh" >> "$LOGS_DIR/package.log" 2>&1; then
+                echo "--- Package succeeded: $(date) ---" >> "$LOGS_DIR/package.log"
+                touch "$COMMANDS_DIR/package-done"
+            else
+                echo "--- Package failed: $(date) ---" >> "$LOGS_DIR/package.log"
+                touch "$COMMANDS_DIR/package-failed"
+            fi
+            ;;
         # Result files are left for the container to read — do not delete
         build-done|build-failed|\
         deploy-server-done|deploy-server-failed|\
         deploy-client-done|deploy-client-failed|\
         ilspy-done|ilspy-failed|\
-        svg-to-png-done|svg-to-png-failed)
+        svg-to-png-done|svg-to-png-failed|\
+        package-done|package-failed)
             ;;
         *)
             echo "Unknown command: $file"

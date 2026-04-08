@@ -221,3 +221,36 @@ fi
 
 Output is always 256x256 pixels, suitable for Thunderstore mod icons.
 
+## Packaging for Thunderstore
+
+To create a Thunderstore-ready zip package, write the project folder name as the
+file content of a `package` command:
+
+```bash
+echo "ValheimRainDance" > /workspace/valheim/commands/package
+```
+
+The package script will:
+- Read the version number from `ThunderstoreAssets/manifest.json`
+- Bundle the built DLL, icon, README, manifest and config files
+- Write the zip to `release/tarbaby-<modname>-<version>.zip` in the project directory
+
+Poll for the result as with other commands:
+
+```bash
+while [ ! -f /workspace/valheim/commands/package-done ] && \
+      [ ! -f /workspace/valheim/commands/package-failed ]; do
+    sleep 2
+done
+
+if [ -f /workspace/valheim/commands/package-done ]; then
+    echo "Package succeeded — see release/ for the zip"
+    rm /workspace/valheim/commands/package-done
+else
+    echo "Package failed — see /workspace/valheim/logs/package.log"
+    rm /workspace/valheim/commands/package-failed
+fi
+```
+
+The package must be built before packaging — always run `build` and verify
+`build-done` before issuing `package`.
