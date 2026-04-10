@@ -151,7 +151,17 @@ mcp = FastMCP(
     ),
 )
 
-# ── Server / client lifecycle (non-blocking) ──────────────────────────────────
+@mcp.tool()
+def steam_status() -> str:
+    """Check whether Steam is currently running on the host."""
+    result = subprocess.run(["pgrep", "-x", "steam"], capture_output=True)
+    if result.returncode == 0:
+        pids = result.stdout.decode().strip().replace("\n", ", ")
+        return f"Steam is running (PID {pids})."
+    return "Steam is not running."
+
+
+
 
 @mcp.tool()
 def start_server() -> str:

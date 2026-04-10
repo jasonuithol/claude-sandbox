@@ -62,10 +62,11 @@ command. Check the relevant log to confirm successful startup.
 
 | Tool | Description |
 |------|-------------|
+| `steam_status()` | Check whether Steam is running on the host (blocking) |
 | `start_server()` | Start the dedicated server via `byawn_start.sh` |
 | `stop_server()` | Stop the dedicated server gracefully via `byawn_stop.sh` |
 | `kill_server()` | Kill the dedicated server immediately via `byawn_kill.sh` |
-| `start_client()` | Start the client via BepInEx (`run_bepinex.sh`) |
+| `start_client()` | Start the client via BepInEx (`run_bepinex.sh`) — **check `steam_status()` first** |
 | `stop_client()` | Stop the client (`pkill valheim.x86_64`) |
 
 ### Build and Deploy
