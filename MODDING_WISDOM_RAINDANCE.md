@@ -320,7 +320,7 @@ Essential for figuring out real field names, method signatures, and ZDO key name
 dotnet tool install ilspycmd -g
 
 # Decompile a specific class
-ilspycmd "/home/jason/.steam/steam/steamapps/common/Valheim dedicated server/valheim_server_Data/Managed/assembly_valheim.dll" -t ClassName
+ilspycmd "$HOME/.steam/steam/steamapps/common/Valheim dedicated server/valheim_server_Data/Managed/assembly_valheim.dll" -t ClassName
 
 # Filter output — use grep for large classes
 ilspycmd "...assembly_valheim.dll" -t EnvMan | grep -A 5 -i "force\|environ"

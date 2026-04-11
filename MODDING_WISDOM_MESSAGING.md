@@ -74,7 +74,7 @@ set -e  # fail on build errors
 
 VERSION=$(grep version_number ThunderstoreAssets/manifest.json | grep -o '[0-9]*\.[0-9]*\.[0-9]*')
 MODNAME=$(basename "$PWD")
-TARGET="/home/jason/.steam/debian-installation/steamapps/common/Valheim dedicated server"
+TARGET="$HOME/.steam/debian-installation/steamapps/common/Valheim dedicated server"
 
 dotnet build -c Release
 

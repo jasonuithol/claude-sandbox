@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-valheim-mcp.py — MCP server replacing valheim-watcher.sh
+mcp-service.py — mcp-build
 
-Runs on the host. Exposes Valheim dev tools to Claude Code running inside
-the Podman container.
+Runs inside a Docker container. Exposes mod build, deploy, package,
+decompile, and SVG conversion tools to Claude Code.
 
-Register with Claude Code (run this inside the container):
-    claude mcp add valheim --transport http http://host.docker.internal:5172/mcp
+Register with Claude Code (run this inside the claude-sandbox container):
+    claude mcp add valheim-build --transport http http://localhost:5172/mcp
 
 Or on the host directly:
-    claude mcp add valheim --transport http http://localhost:5172/mcp
+    claude mcp add valheim-build --transport http http://localhost:5172/mcp
 """
 
 import asyncio
@@ -22,61 +22,55 @@ from fastmcp import FastMCP
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
+import os
+
 HOME        = Path.home()
-SERVER_DIR  = HOME / ".steam/steam/steamapps/common/Valheim dedicated server"
-CLIENT_DIR  = HOME / ".steam/steam/steamapps/common/Valheim"
-PROJECT_DIR = HOME / "Projects"
-LOGS_DIR    = HOME / "ClaudeProjects/valheim/logs"
+SERVER_DIR  = Path(os.environ.get("VALHEIM_SERVER_DIR",  str(HOME / ".steam/steam/steamapps/common/Valheim dedicated server")))
+CLIENT_DIR  = Path(os.environ.get("VALHEIM_CLIENT_DIR",  str(HOME / ".steam/steam/steamapps/common/Valheim")))
+PROJECT_DIR = Path(os.environ.get("VALHEIM_PROJECT_DIR", str(HOME / "Projects")))
+LOGS_DIR    = Path(os.environ.get("VALHEIM_LOGS_DIR",    str(HOME / "ClaudeProjects/valheim/logs")))
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Container → host path map ─────────────────────────────────────────────────
+#
+# Translates paths as seen inside claude-sandbox to paths inside this container.
+# Built statically from env vars — no docker socket required.
+#
+# Claude-sandbox mounts              →  This container's paths
+#   CLAUDE_SERVER_MOUNT              →  SERVER_DIR
+#   CLAUDE_CLIENT_MOUNT              →  CLIENT_DIR
+#   CLAUDE_PROJECT_MOUNT/<project>   →  PROJECT_DIR/<project>
+#
+# Override the CLAUDE_* vars if claude-sandbox uses non-default workspace paths.
+
+_CLAUDE_SERVER_MOUNT  = os.environ.get("CLAUDE_SERVER_MOUNT",  "/workspace/valheim/server")
+_CLAUDE_CLIENT_MOUNT  = os.environ.get("CLAUDE_CLIENT_MOUNT",  "/workspace/valheim/client")
+_CLAUDE_PROJECT_MOUNT = os.environ.get("CLAUDE_PROJECT_MOUNT", "/workspace")
 
 _path_map: dict[str, str] = {}
 
 
 def _build_path_map() -> str:
     """
-    Inspect the running claude-sandbox Podman container and build a map of
-    container mount destinations → host source paths.
-    Returns a human-readable summary string.
+    Build the claude-sandbox → this container path map from known mount points.
+    Call refresh_path_map() if the claude-sandbox workspace layout has changed.
     """
     global _path_map
-    _path_map = {}
-
-    result = subprocess.run(
-        ["podman", "ps", "--filter", "ancestor=claude-sandbox", "--format", "{{.ID}}"],
-        capture_output=True, text=True,
-    )
-    container_id = result.stdout.strip().split("\n")[0].strip()
-
-    if not container_id:
-        msg = "Warning: no running claude-sandbox container found — path mapping unavailable."
-        print(msg)
-        return msg
-
-    result = subprocess.run(
-        ["podman", "inspect", container_id],
-        capture_output=True, text=True,
-    )
-    data = json.loads(result.stdout)
-    mounts = data[0]["Mounts"]
-
-    for mount in mounts:
-        _path_map[mount["Destination"]] = mount["Source"]
-
+    _path_map = {
+        _CLAUDE_SERVER_MOUNT:  str(SERVER_DIR),
+        _CLAUDE_CLIENT_MOUNT:  str(CLIENT_DIR),
+        _CLAUDE_PROJECT_MOUNT: str(PROJECT_DIR),
+    }
     lines = [f"  {dst} -> {src}" for dst, src in _path_map.items()]
-    summary = (
-        f"Path map built from container {container_id} "
-        f"({len(_path_map)} mounts):\n" + "\n".join(lines)
-    )
+    summary = "Path map (static):\n" + "\n".join(lines)
     print(summary)
     return summary
 
 
 def _container_to_host(container_path: str) -> str:
     """
-    Translate a container-side path to its host equivalent using the mount map.
+    Translate a claude-sandbox path to its equivalent inside this container.
     Raises ValueError if no mapping is found.
     """
     best_dst = ""
@@ -89,8 +83,8 @@ def _container_to_host(container_path: str) -> str:
 
     if not best_dst:
         raise ValueError(
-            f"No host mapping found for container path: {container_path}\n"
-            "If the container was restarted, call refresh_path_map()."
+            f"No mapping found for path: {container_path}\n"
+            "Check CLAUDE_SERVER_MOUNT, CLAUDE_CLIENT_MOUNT, CLAUDE_PROJECT_MOUNT env vars."
         )
 
     return best_src + container_path[len(best_dst):]
@@ -127,83 +121,17 @@ async def _run_async(cmd: list[str], cwd: str | None, log_path: Path) -> tuple[b
     return await asyncio.to_thread(_run, cmd, cwd, log_path)
 
 
-def _fire_and_forget(cmd: list[str], cwd: str, log_path: Path) -> None:
-    """Launch a process detached from this process — for start-server / start-client."""
-    with open(log_path, "w") as log:
-        subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,   # detach from our session
-        )
-
-
 # ── MCP server ────────────────────────────────────────────────────────────────
 
 mcp = FastMCP(
-    name="valheim",
+    name="valheim-build",
     instructions=(
-        "Tools for controlling the Valheim dedicated server, client, and mod "
-        "build pipeline from inside the Claude Code container. "
-        "All blocking tools (build, deploy, package, decompile, convert) return "
-        "the full log output so you can diagnose failures without reading a file."
+        "Tools for building, deploying, and packaging Valheim mods. "
+        "All tools (build, deploy, package, decompile, convert) return "
+        "the full log output so you can diagnose failures without reading a file. "
+        "Server and client control tools are in the separate valheim-control MCP (mcp-control, port 5173)."
     ),
 )
-
-@mcp.tool()
-def steam_status() -> str:
-    """Check whether Steam is currently running on the host."""
-    result = subprocess.run(["pgrep", "-x", "steam"], capture_output=True)
-    if result.returncode == 0:
-        pids = result.stdout.decode().strip().replace("\n", ", ")
-        return f"Steam is running (PID {pids})."
-    return "Steam is not running."
-
-
-
-
-@mcp.tool()
-def start_server() -> str:
-    """Start the Valheim dedicated server. Non-blocking — check logs/server.log for startup progress."""
-    _fire_and_forget(
-        ["setsid", "bash", "byawn_start.sh"],
-        cwd=str(SERVER_DIR),
-        log_path=LOGS_DIR / "server.log",
-    )
-    return "Server start initiated. Monitor logs/server.log for startup output."
-
-
-@mcp.tool()
-def stop_server() -> str:
-    """Stop the Valheim dedicated server gracefully."""
-    subprocess.run(["bash", "byawn_stop.sh"], cwd=str(SERVER_DIR))
-    return "Stop-server command issued."
-
-
-@mcp.tool()
-def kill_server() -> str:
-    """Kill the Valheim dedicated server immediately (no graceful shutdown)."""
-    subprocess.run(["bash", "byawn_kill.sh"], cwd=str(SERVER_DIR))
-    return "Kill-server command issued."
-
-
-@mcp.tool()
-def start_client() -> str:
-    """Start the Valheim client via BepInEx. Non-blocking — check logs/client.log for startup progress."""
-    _fire_and_forget(
-        ["setsid", "bash", "run_bepinex.sh", "valheim.x86_64", "-console"],
-        cwd=str(CLIENT_DIR),
-        log_path=LOGS_DIR / "client.log",
-    )
-    return "Client start initiated. Monitor logs/client.log for startup output."
-
-
-@mcp.tool()
-def stop_client() -> str:
-    """Stop the Valheim client."""
-    subprocess.run(["pkill", "-f", "valheim.x86_64"])
-    return "Stop-client command issued."
 
 
 # ── Build, deploy, package (blocking — return full log) ───────────────────────
@@ -253,7 +181,7 @@ async def deploy_client(project: str) -> str:
 
 
 def _deploy(project: str, target: Path, log_path: Path) -> str:
-    import shutil, glob
+    import shutil
     lines = [f"--- Started: {datetime.now()} ---"]
     try:
         project_dir = PROJECT_DIR / project
@@ -310,14 +238,12 @@ def _package(project: str, log_path: Path) -> str:
         project_dir = PROJECT_DIR / project
         assets_dir  = project_dir / "ThunderstoreAssets"
 
-        # Read version from manifest
         manifest_path = assets_dir / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
         version  = manifest["version_number"]
         modname  = project_dir.name
         zip_name = f"tarbaby-{modname}-{version}.zip"
 
-        # Clean and prepare staging
         staging = project_dir / "staging"
         release = project_dir / "release"
         shutil.rmtree(staging, ignore_errors=True)
@@ -326,23 +252,19 @@ def _package(project: str, log_path: Path) -> str:
         (staging / "config").mkdir(parents=True)
         release.mkdir()
 
-        # Copy Thunderstore assets
         for name in ("icon.png", "README.md", "manifest.json"):
             shutil.copy2(assets_dir / name, staging / name)
             lines.append(f"Staged {name}")
 
-        # Copy DLLs
         dll_src = project_dir / "bin/Release/netstandard2.1"
         for dll in dll_src.glob("*.dll"):
             shutil.copy2(dll, staging / "plugins" / dll.name)
             lines.append(f"Staged plugins/{dll.name}")
 
-        # Copy configs
         for cfg in project_dir.glob("*.cfg"):
             shutil.copy2(cfg, staging / "config" / cfg.name)
             lines.append(f"Staged config/{cfg.name}")
 
-        # Zip staging into release
         zip_path = release / zip_name
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in staging.rglob("*"):
@@ -420,8 +342,8 @@ async def convert_svg(container_path: str) -> str:
 @mcp.tool()
 def refresh_path_map() -> str:
     """
-    Rebuild the container→host path map by re-inspecting the Podman container.
-    Call this whenever the container has been restarted since the MCP server started.
+    Rebuild the claude-sandbox → mcp-build path map from environment variables.
+    Only needed if mount paths have changed since startup.
     """
     return _build_path_map()
 
@@ -431,9 +353,9 @@ def refresh_path_map() -> str:
 if __name__ == "__main__":
     print("Building initial path map...")
     _build_path_map()
-    print("Starting Valheim MCP server on http://0.0.0.0:5172")
+    print("Starting valheim-build MCP on http://0.0.0.0:5172")
     print()
-    print("Register with Claude Code inside the container:")
-    print("  claude mcp add valheim --transport http http://host.docker.internal:5172/mcp")
+    print("Register with Claude Code:")
+    print("  claude mcp add valheim-build --transport http http://localhost:5172/mcp")
     print()
     mcp.run(transport="streamable-http", host="0.0.0.0", port=5172)
