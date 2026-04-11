@@ -38,12 +38,19 @@ Requires a real platform ID. Throws `EndOfStreamException` with a fake one.
 If you must use `ChatMessage`, get the platform ID like this:
 
 ```csharp
-private static string GetPlatformId(ZNetPeer peer)
+//
+// WARNING: This is a magic band-aid.
+//
+private string GetPlatformId(ZNetPeer peer)
 {
     var rawId = peer.m_socket.GetHostName();
+
     if (rawId.StartsWith("Steam_") || rawId.StartsWith("playfab/"))
+    {
         return rawId;
-    return "Steam_" + rawId; // Windows Steam direct connection
+    }
+
+    return "Steam_" + rawId;
 }
 
 ZRoutedRpc.instance.InvokeRoutedRPC(
