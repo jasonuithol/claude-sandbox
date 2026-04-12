@@ -256,6 +256,11 @@ def _package(project: str, log_path: Path) -> str:
             shutil.copy2(assets_dir / name, staging / name)
             lines.append(f"Staged {name}")
 
+        changelog = assets_dir / "CHANGELOG.md"
+        if changelog.exists():
+            shutil.copy2(changelog, staging / "CHANGELOG.md")
+            lines.append("Staged CHANGELOG.md")
+
         dll_src = project_dir / "bin/Release/netstandard2.1"
         for dll in dll_src.glob("*.dll"):
             shutil.copy2(dll, staging / "plugins" / dll.name)
@@ -283,6 +288,102 @@ def _package(project: str, log_path: Path) -> str:
         result = "\n".join(lines)
         log_path.write_text(result)
         return f"PACKAGE FAILED ✗\n\n{result}"
+
+
+# ── Thunderstore publish ──────────────────────────────────────────────────────
+
+@mcp.tool()
+async def publish(project: str, community: str = "valheim") -> str:
+    """
+    Publish the packaged mod to Thunderstore.
+    Uploads the ZIP from release/ (created by package()).
+    Reads the auth token from the THUNDERSTORE_TOKEN environment variable.
+
+    Args:
+        project:   Project folder name under ~/Projects (no path separators).
+        community: Thunderstore community slug (default: 'valheim').
+
+    Always run build() and package() successfully before publishing.
+    """
+    return await asyncio.to_thread(_publish, project, community, LOGS_DIR / "publish.log")
+
+
+def _publish(project: str, community: str, log_path: Path) -> str:
+    import httpx
+
+    lines = [f"--- Started: {datetime.now()} ---"]
+
+    try:
+        token = os.environ.get("THUNDERSTORE_TOKEN", "")
+        if not token:
+            raise ValueError(
+                "THUNDERSTORE_TOKEN environment variable is not set. "
+                "Generate a service account token at thunderstore.io and pass it "
+                "via -e THUNDERSTORE_TOKEN when starting the container."
+            )
+
+        release_dir = PROJECT_DIR / project / "release"
+        zips = sorted(release_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not zips:
+            raise FileNotFoundError(
+                f"No ZIP found in {release_dir}. Run package() first."
+            )
+        zip_path = zips[0]
+        lines.append(f"Uploading {zip_path.name} to community '{community}'...")
+
+        # Read team name from manifest
+        manifest_path = PROJECT_DIR / project / "ThunderstoreAssets" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        author_name = manifest.get("author", manifest.get("namespace", ""))
+        if not author_name:
+            raise ValueError(
+                "manifest.json must contain an 'author' or 'namespace' field "
+                "matching your Thunderstore team name."
+            )
+
+        url = f"https://thunderstore.io/api/experimental/submission/upload/"
+        headers = {"Authorization": f"Bearer {token}"}
+        metadata = json.dumps({
+            "author_name": author_name,
+            "communities": [community],
+            "has_nsfw_content": False,
+            "categories": [],
+            "community_categories": {},
+        })
+
+        with open(zip_path, "rb") as f:
+            response = httpx.post(
+                url,
+                headers=headers,
+                files={"file": (zip_path.name, f, "application/zip")},
+                data={"metadata": metadata},
+                timeout=120,
+            )
+
+        lines.append(f"HTTP {response.status_code}")
+        try:
+            body = json.dumps(response.json(), indent=2)
+        except Exception:
+            body = response.text
+        lines.append(body)
+
+        if response.status_code in (200, 201):
+            lines.append(f"--- Succeeded: {datetime.now()} ---")
+            result = "\n".join(lines)
+            log_path.write_text(result)
+            return f"PUBLISH SUCCEEDED ✓\n\n{result}"
+        else:
+            lines.append(f"--- Failed: {datetime.now()} ---")
+            result = "\n".join(lines)
+            log_path.write_text(result)
+            return f"PUBLISH FAILED ✗\n\n{result}"
+
+    except Exception as e:
+        lines.append(f"ERROR: {e}")
+        lines.append(f"--- Failed: {datetime.now()} ---")
+        result = "\n".join(lines)
+        log_path.write_text(result)
+        return f"PUBLISH FAILED ✗\n\n{result}"
 
 
 # ── Path-translated tools (blocking) ─────────────────────────────────────────

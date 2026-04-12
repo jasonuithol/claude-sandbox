@@ -100,10 +100,23 @@ These tools are **blocking** — they run to completion and return the full log.
 | `deploy_server(project)` | Project folder name | Copy DLLs and configs to server BepInEx dirs |
 | `deploy_client(project)` | Project folder name | Copy DLLs and configs to client BepInEx dirs |
 | `package(project)` | Project folder name | Bundle mod into Thunderstore zip |
+| `publish(project, community)` | Project folder name, community slug (default: `"valheim"`) | Upload packaged zip to Thunderstore |
 
 `project` is a folder name under `~/Projects` with no path separators,
 e.g. `"ValheimRainDance"`. Always build and verify success before deploying
-or packaging.
+or packaging. Always build and package before publishing.
+
+### Thunderstore Publishing
+
+`publish` requires a `THUNDERSTORE_TOKEN` environment variable. Place your
+service account token (format `tss_XXXX`) in `mcp-build/.env`:
+
+```
+THUNDERSTORE_TOKEN=tss_your_token_here
+```
+
+This file is gitignored. The token is loaded automatically by
+`start-container.sh` and passed into the container.
 
 ### Decompiling Assemblies (`valheim-build`)
 
@@ -179,6 +192,7 @@ and are also returned directly in the tool response.
 | `logs/deploy-server.log` | `deploy_server` |
 | `logs/deploy-client.log` | `deploy_client` |
 | `logs/package.log` | `package` |
+| `logs/publish.log` | `publish` |
 | `logs/ilspy.log` | `decompile_dll` |
 | `logs/svg-to-png.log` | `convert_svg` |
 | `logs/server.log` | `start_server` (server container stdout) |
@@ -251,6 +265,7 @@ EOF
 - Server and client start tools are non-blocking — check logs to confirm
   successful startup.
 - The package zip is written to `release/tarbaby-<modname>-<version>.zip`
-  inside the project directory.
+  inside the project directory. If `ThunderstoreAssets/CHANGELOG.md` exists
+  it is included in the zip.
 - Path environment variables can override default mount points:
   `VALHEIM_SERVER_DIR`, `VALHEIM_CLIENT_DIR`, `VALHEIM_PROJECT_DIR`, `VALHEIM_LOGS_DIR`.
