@@ -11,6 +11,7 @@ DIR="$(dirname "$0")"
 # for rootless Podman so Claude Code can run as a non-root user in dangerous mode.
 podman run -it --rm \
   --userns=keep-id \
+  --network=host \
   -v ~/.claude:/home/claude/.claude:Z \
   -v ~/.claude.json:/home/claude/.claude.json:Z \
   -v ~/ClaudeProjects:/workspace:Z \
@@ -18,6 +19,7 @@ podman run -it --rm \
   -v "$HOME/.steam/steam/steamapps/common/Valheim":/workspace/valheim/client:Z \
   -v "$DIR/docs":/workspace/docs:Z \
   -v ~/Projects/$PROJECT:/workspace/$PROJECT:Z \
+  -v "$DIR/entrypoint.sh":/usr/local/bin/entrypoint.sh:ro,Z \
   -w /workspace/$PROJECT \
   claude-sandbox \
-  claude --dangerously-skip-permissions
+  /usr/local/bin/entrypoint.sh

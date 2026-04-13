@@ -1,3 +1,5 @@
 .garbage/
 .venv/
 .env
+mcp-knowledge/models/
+mcp-knowledge/knowledge/

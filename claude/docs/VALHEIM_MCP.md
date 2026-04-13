@@ -5,9 +5,11 @@ the Claude Code container using the MCP tool servers.
 
 ## Architecture
 
-Two MCP services run on the host. `mcp-build` runs in a container (heavy build
-tools). `mcp-control` runs as a host process (needs access to host processes and
-container management).
+Three MCP services run on the host. `mcp-build` runs in a container (heavy
+build tools). `mcp-control` runs as a host process (needs access to host
+processes and container management). `mcp-knowledge` runs in a container
+(RAG knowledge base). Both mcp-build and mcp-control report every tool
+execution to mcp-knowledge via fire-and-forget HTTP POST.
 
 ```
 Podman (on host)
@@ -20,15 +22,24 @@ Podman (on host)
 │       │                                                  │
 │       │                                                  ├── dotnet build     (mod builds)
 │       │                                                  ├── ilspycmd         (decompile DLLs)
-│       │                                                  └── rsvg-convert     (SVG→PNG)
-│       │
-│       └──── HTTP (port 5173) ────────────────────────────────────┐
-│                                                                   ▼
-│                                                     mcp-control  (port 5173, host process)
+│       │                                                  ├── rsvg-convert     (SVG→PNG)
+│       │                                                  └── POST /ingest ──────────┐
+│       │                                                                               │
+│       ├──── HTTP (port 5173) ────────────────────────────────────┐                    │
+│       │                                                           ▼                    │
+│       │                                             mcp-control  (port 5173, host)     │
+│       │                                                  │                              │
+│       │                                                  ├── docker (server container)  │
+│       │                                                  ├── psutil (Steam/client)      │
+│       │                                                  └── POST /ingest ──────────┐  │
+│       │                                                                               │  │
+│       └──── HTTP (port 5174) ────────────────────────────────────┐                    │  │
+│                                                                   ▼                    │  │
+│                                                     mcp-knowledge (port 5174, container)◄─┘
 │                                                          │
-│                                                          ├── docker start/stop/kill (server container)
-│                                                          ├── psutil  (Steam status/start, client stop)
-│                                                          └── subprocess (Steam/client start via BepInEx)
+│                                                          ├── ChromaDB    (vector store)
+│                                                          ├── /ingest     (auto-learns from tool use)
+│                                                          └── MCP tools   (ask, ask_class, stats, etc.)
 │
 ├── valheim_server          Valheim dedicated server (managed by mcp-control)
 │
@@ -178,6 +189,45 @@ The dedicated server runs as a Docker container (`valheim_server`).
 | `start_client()` | Start the client via `run_bepinex.sh`. Non-blocking |
 | `stop_client()` | Stop the client process |
 
+### Knowledge Base (`valheim-knowledge`, port 5174)
+
+RAG-backed knowledge service. Grows automatically from tool use — every tool
+execution in mcp-build and mcp-control reports to mcp-knowledge via
+fire-and-forget POST. See `INGEST_MCP.md` for full
+usage docs.
+
+| Tool | Description |
+|------|-------------|
+| `ask(question)` | Semantic search across all knowledge (top 5 results) |
+| `ask_class(class_name)` | Find all indexed knowledge about a specific Valheim class |
+| `ask_tagged(question, tags)` | Semantic search filtered by tags (lowercase only) |
+| `stats()` | Collection size, source breakdown, tag distribution |
+| `list_sources()` | All indexed sources with chunk counts |
+| `forget(source)` | Delete all chunks from a source |
+| `seed_docs(docs_path)` | One-time: index the curated MODDING_*.md docs |
+| `seed_decompile(class_name)` | One-time: decompile a class via mcp-build and index it |
+
+#### First-time seeding
+
+After starting mcp-knowledge for the first time, seed with the curated docs
+and key Valheim classes:
+
+```
+seed_docs("/opt/projects/claude-sandbox/claude/docs")
+seed_decompile("Player")
+seed_decompile("ZRoutedRpc")
+seed_decompile("ZDOVars")
+seed_decompile("EnvMan")
+seed_decompile("ZNetPeer")
+seed_decompile("Bed")
+seed_decompile("RandEventSystem")
+seed_decompile("VisEquipment")
+seed_decompile("ZSyncAnimation")
+```
+
+Run `stats()` afterwards to confirm. After seeding, knowledge grows
+automatically from normal tool usage.
+
 ---
 
 ## Logs
@@ -255,6 +305,7 @@ EOF
 | `mcp-build/start-container.sh` | Start the container |
 | `mcp-control/mcp-service.py` | Control MCP implementation (host process, port 5173) |
 | `mcp-control/start-mcp-service.sh` | Start the control MCP server on the host |
+| `mcp-knowledge/` | Knowledge RAG service (container, port 5174) — see `mcp-knowledge/CLAUDE.md` |
 
 ---
 
@@ -269,3 +320,6 @@ EOF
   it is included in the zip.
 - Path environment variables can override default mount points:
   `VALHEIM_SERVER_DIR`, `VALHEIM_CLIENT_DIR`, `VALHEIM_PROJECT_DIR`, `VALHEIM_LOGS_DIR`.
+- All tool executions in mcp-build and mcp-control are reported to
+  mcp-knowledge (`localhost:5174/ingest`) via fire-and-forget HTTP POST.
+  If mcp-knowledge is not running, the reports are silently dropped.

@@ -18,6 +18,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastmcp import FastMCP
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -90,6 +91,25 @@ def _container_to_host(container_path: str) -> str:
     return best_src + container_path[len(best_dst):]
 
 
+# ── Knowledge reporter ────────────────────────────────────────────────────────
+
+_KNOWLEDGE_URL = "http://localhost:5174/ingest"
+
+def _report(tool: str, args: dict, result: str, success: bool):
+    """Fire-and-forget report to mcp-knowledge. Never raises."""
+    try:
+        httpx.post(_KNOWLEDGE_URL, json={
+            "tool": tool,
+            "args": args,
+            "result": result,
+            "success": success,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "service": "mcp-build",
+        }, timeout=2)
+    except Exception:
+        pass
+
+
 # ── Subprocess helpers ────────────────────────────────────────────────────────
 
 def _run(cmd: list[str], cwd: str | None, log_path: Path) -> tuple[bool, str]:
@@ -153,7 +173,9 @@ async def build(project: str) -> str:
         log_path=LOGS_DIR / "build.log",
     )
     header = "BUILD SUCCEEDED ✓" if success else "BUILD FAILED ✗"
-    return f"{header}\n\n{log}"
+    result = f"{header}\n\n{log}"
+    _report("build", {"project": project}, result, success)
+    return result
 
 
 @mcp.tool()
@@ -165,7 +187,9 @@ async def deploy_server(project: str) -> str:
     Args:
         project: Project folder name under ~/Projects (no path separators).
     """
-    return await asyncio.to_thread(_deploy, project, SERVER_DIR, LOGS_DIR / "deploy-server.log")
+    result = await asyncio.to_thread(_deploy, project, SERVER_DIR, LOGS_DIR / "deploy-server.log")
+    _report("deploy_server", {"project": project}, result, result.startswith("DEPLOY SUCCEEDED"))
+    return result
 
 
 @mcp.tool()
@@ -177,7 +201,9 @@ async def deploy_client(project: str) -> str:
     Args:
         project: Project folder name under ~/Projects (no path separators).
     """
-    return await asyncio.to_thread(_deploy, project, CLIENT_DIR, LOGS_DIR / "deploy-client.log")
+    result = await asyncio.to_thread(_deploy, project, CLIENT_DIR, LOGS_DIR / "deploy-client.log")
+    _report("deploy_client", {"project": project}, result, result.startswith("DEPLOY SUCCEEDED"))
+    return result
 
 
 def _deploy(project: str, target: Path, log_path: Path) -> str:
@@ -228,7 +254,9 @@ async def package(project: str) -> str:
     Args:
         project: Project folder name under ~/Projects (no path separators).
     """
-    return await asyncio.to_thread(_package, project, LOGS_DIR / "package.log")
+    result = await asyncio.to_thread(_package, project, LOGS_DIR / "package.log")
+    _report("package", {"project": project}, result, result.startswith("PACKAGE SUCCEEDED"))
+    return result
 
 
 def _package(project: str, log_path: Path) -> str:
@@ -305,7 +333,9 @@ async def publish(project: str, community: str = "valheim") -> str:
 
     Always run build() and package() successfully before publishing.
     """
-    return await asyncio.to_thread(_publish, project, community, LOGS_DIR / "publish.log")
+    result = await asyncio.to_thread(_publish, project, community, LOGS_DIR / "publish.log")
+    _report("publish", {"project": project, "community": community}, result, result.startswith("PUBLISH SUCCEEDED"))
+    return result
 
 
 def _publish(project: str, community: str, log_path: Path) -> str:
@@ -389,7 +419,7 @@ def _publish(project: str, community: str, log_path: Path) -> str:
 # ── Path-translated tools (blocking) ─────────────────────────────────────────
 
 @mcp.tool()
-async def decompile_dll(container_path: str) -> str:
+async def decompile_dll(container_path: str, type_name: str | None = None) -> str:
     """
     Decompile a DLL with ilspycmd and return the source output.
     Output is also written to logs/ilspy.log.
@@ -397,19 +427,30 @@ async def decompile_dll(container_path: str) -> str:
     Args:
         container_path: Path to the DLL as seen from inside the container,
                         e.g. '/workspace/valheim/server/valheim_server_Data/Managed/assembly_valheim.dll'
+        type_name:      Optional type name to decompile a single class,
+                        e.g. 'Player' or 'ZRoutedRpc'. Omit to decompile the entire DLL.
     """
     try:
         host_path = _container_to_host(container_path)
     except ValueError as e:
-        return f"PATH TRANSLATION FAILED\n\n{e}"
+        result = f"PATH TRANSLATION FAILED\n\n{e}"
+        _report("decompile_dll", {"container_path": container_path, "type_name": type_name}, result, False)
+        return result
+
+    cmd = ["ilspycmd"]
+    if type_name:
+        cmd += ["-t", type_name]
+    cmd.append(host_path)
 
     success, log = await _run_async(
-        ["ilspycmd", host_path],
+        cmd,
         cwd=None,
         log_path=LOGS_DIR / "ilspy.log",
     )
     header = "DECOMPILE SUCCEEDED ✓" if success else "DECOMPILE FAILED ✗"
-    return f"{header}\n\n{log}"
+    result = f"{header}\n\n{log}"
+    _report("decompile_dll", {"container_path": container_path, "type_name": type_name}, result, success)
+    return result
 
 
 @mcp.tool()
@@ -425,7 +466,9 @@ async def convert_svg(container_path: str) -> str:
     try:
         host_svg = _container_to_host(container_path)
     except ValueError as e:
-        return f"PATH TRANSLATION FAILED\n\n{e}"
+        result = f"PATH TRANSLATION FAILED\n\n{e}"
+        _report("convert_svg", {"container_path": container_path}, result, False)
+        return result
 
     host_png = str(Path(host_svg).with_suffix(".png"))
 
@@ -435,7 +478,9 @@ async def convert_svg(container_path: str) -> str:
         log_path=LOGS_DIR / "svg-to-png.log",
     )
     header = "CONVERT SUCCEEDED ✓" if success else "CONVERT FAILED ✗"
-    return f"{header}\n\n{log}"
+    result = f"{header}\n\n{log}"
+    _report("convert_svg", {"container_path": container_path}, result, success)
+    return result
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────
@@ -446,7 +491,9 @@ def refresh_path_map() -> str:
     Rebuild the claude-sandbox → mcp-build path map from environment variables.
     Only needed if mount paths have changed since startup.
     """
-    return _build_path_map()
+    result = _build_path_map()
+    _report("refresh_path_map", {}, result, True)
+    return result
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

@@ -14,8 +14,10 @@ Or on the host directly:
 
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
+import httpx
 import psutil
 from fastmcp import FastMCP
 
@@ -30,6 +32,25 @@ VALHEIM_SERVER_CONTAINER = "valheim_server"
 VALHEIM_SERVER_IMAGE     = "valheim_server"
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Knowledge reporter ────────────────────────────────────────────────────────
+
+_KNOWLEDGE_URL = "http://localhost:5174/ingest"
+
+def _report(tool: str, args: dict, result: str, success: bool):
+    """Fire-and-forget report to mcp-knowledge. Never raises."""
+    try:
+        httpx.post(_KNOWLEDGE_URL, json={
+            "tool": tool,
+            "args": args,
+            "result": result,
+            "success": success,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "service": "mcp-control",
+        }, timeout=2)
+    except Exception:
+        pass
+
 
 # ── MCP server ────────────────────────────────────────────────────────────────
 
@@ -53,15 +74,20 @@ def steam_status() -> str:
              if p.info["name"] in ("steam", "steam.exe")]
     if procs:
         pids = ", ".join(str(p.pid) for p in procs)
-        return f"Steam is running (PID {pids})."
-    return "Steam is not running."
+        result = f"Steam is running (PID {pids})."
+    else:
+        result = "Steam is not running."
+    _report("steam_status", {}, result, True)
+    return result
 
 
 @mcp.tool()
 def start_steam() -> str:
     """Start Steam on the host. Non-blocking — use steam_status() to confirm startup."""
     subprocess.Popen(["steam"], start_new_session=True)
-    return "Steam launch initiated."
+    result = "Steam launch initiated."
+    _report("start_steam", {}, result, True)
+    return result
 
 
 # ── Server lifecycle ──────────────────────────────────────────────────────────
@@ -87,7 +113,9 @@ def start_server(script: str = "start_server.sh") -> str:
             capture_output=True, text=True,
         )
         if build.returncode != 0:
-            return f"IMAGE BUILD FAILED ✗\n\n{build.stderr}"
+            result = f"IMAGE BUILD FAILED ✗\n\n{build.stderr}"
+            _report("start_server", {"script": script}, result, False)
+            return result
 
     log_path = LOGS_DIR / "server.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,31 +131,41 @@ def start_server(script: str = "start_server.sh") -> str:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    return f"Server container starting (script: {script}). Monitor logs/server.log for output."
+    result = f"Server container starting (script: {script}). Monitor logs/server.log for output."
+    _report("start_server", {"script": script}, result, True)
+    return result
 
 
 @mcp.tool()
 def stop_server() -> str:
     """Stop the Valheim server container gracefully (SIGTERM)."""
-    result = subprocess.run(
+    proc = subprocess.run(
         ["docker", "stop", VALHEIM_SERVER_CONTAINER],
         capture_output=True, text=True,
     )
-    if result.returncode != 0:
-        return f"STOP FAILED ✗\n\n{result.stderr}"
-    return "Server container stopped."
+    if proc.returncode != 0:
+        result = f"STOP FAILED ✗\n\n{proc.stderr}"
+        _report("stop_server", {}, result, False)
+        return result
+    result = "Server container stopped."
+    _report("stop_server", {}, result, True)
+    return result
 
 
 @mcp.tool()
 def kill_server() -> str:
     """Kill the Valheim server container immediately (SIGKILL)."""
-    result = subprocess.run(
+    proc = subprocess.run(
         ["docker", "kill", VALHEIM_SERVER_CONTAINER],
         capture_output=True, text=True,
     )
-    if result.returncode != 0:
-        return f"KILL FAILED ✗\n\n{result.stderr}"
-    return "Server container killed."
+    if proc.returncode != 0:
+        result = f"KILL FAILED ✗\n\n{proc.stderr}"
+        _report("kill_server", {}, result, False)
+        return result
+    result = "Server container killed."
+    _report("kill_server", {}, result, True)
+    return result
 
 
 # ── Client lifecycle ──────────────────────────────────────────────────────────
@@ -146,7 +184,9 @@ def start_client() -> str:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    return "Client start initiated. Monitor logs/client.log for startup output."
+    result = "Client start initiated. Monitor logs/client.log for startup output."
+    _report("start_client", {}, result, True)
+    return result
 
 
 @mcp.tool()
@@ -155,11 +195,15 @@ def stop_client() -> str:
     targets = [p for p in psutil.process_iter(["cmdline"])
                if "valheim.x86_64" in " ".join(p.info.get("cmdline") or [])]
     if not targets:
-        return "No valheim.x86_64 process found."
+        result = "No valheim.x86_64 process found."
+        _report("stop_client", {}, result, True)
+        return result
     for p in targets:
         p.kill()
     psutil.wait_procs(targets, timeout=5)
-    return "Client stopped."
+    result = "Client stopped."
+    _report("stop_client", {}, result, True)
+    return result
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

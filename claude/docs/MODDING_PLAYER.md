@@ -73,14 +73,9 @@ static class Patch_SuppressOnDeath
 
 ---
 
-## Emote Detection (Server-Side via ZDO)
+## Emote Detection (Server-Side)
 
-```csharp
-ZDO zdo = ZDOMan.instance.GetZDO(peer.m_characterID);
-string emoteName = zdo.GetString(ZDOVars.s_emote); // "dance", "wave", "", etc.
-```
-
-See `MODDING_ZDO.md` for the full ZDOVars reference.
+Via ZDO — see `MODDING_ZDO.md` for the full pattern and ZDOVars reference.
 
 ---
 

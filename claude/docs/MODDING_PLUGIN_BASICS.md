@@ -86,11 +86,6 @@ foreach (var uid in myDict.Keys.Where(uid => !connected.Contains(uid)).ToList())
 
 ---
 
-## Jotunn Dependency Declaration
+## Jotunn Dependency
 
-When using Jotunn RPCs:
-```csharp
-[BepInPlugin(PluginGUID, PluginName, PluginVersion)]
-[BepInDependency(Jotunn.Main.ModGuid)]
-public class MyPlugin : BaseUnityPlugin { }
-```
+When using Jotunn RPCs, add `[BepInDependency(Jotunn.Main.ModGuid)]` — see `MODDING_NETWORKING.md`.

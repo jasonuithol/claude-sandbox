@@ -126,39 +126,13 @@ ilspycmd assembly_valheim.dll -t ZDOVars | grep -i "emote\|item\|equip"
 ilspycmd assembly_valheim.dll -t EnvMan | grep -A 5 -i "force\|environ"
 ```
 
-**Key classes to know:**
-- `ZDOVars` — all ZDO key constants
-- `ZRoutedRpc` — all routed RPC registrations and invocations
-- `EnvMan` — weather/environment system
-- `ZSyncAnimation` — animator parameter sync (uses salt `438569 + hash`)
-- `VisEquipment` — equipment visual sync (stores as int hash, not string)
-- `Player` — emote logic, `StartEmote`, `StopEmote`, `UpdateEmote`
-- `ZNetPeer` — peer fields: `m_uid`, `m_playerName`, `m_characterID`, `m_refPos`, `m_socket`
-- `RandEventSystem` — random event/raid system
+Key classes to decompile are listed in `MODDING_ZDO.md`.
 
 ---
 
 ## Build & Deploy
 
-The MCP `build`, `deploy_server`, and `deploy_client` tools handle this. They run on the
-host — paths like `bin/Release/netstandard2.1/MyMod.dll` are relative and resolve correctly.
-
-### Manual deploy script (for reference)
-```bash
-#!/bin/bash
-set -e
-
-VERSION=$(grep version_number ThunderstoreAssets/manifest.json | grep -o '[0-9]*\.[0-9]*\.[0-9]*')
-MODNAME=$(basename "$PWD")
-TARGET="$HOME/.steam/debian-installation/steamapps/common/Valheim dedicated server"
-
-dotnet build -c Release
-mkdir -p "${TARGET}/BepInEx/plugins" "${TARGET}/BepInEx/config"
-cp bin/Release/netstandard2.1/${MODNAME}.dll "${TARGET}/BepInEx/plugins/"
-cp *.cfg "${TARGET}/BepInEx/config/" 2>/dev/null || true
-
-echo "Deployed ${MODNAME} v${VERSION}"
-```
+The MCP `build`, `deploy_server`, and `deploy_client` tools handle this — see `VALHEIM_MCP.md`.
 
 ---
 

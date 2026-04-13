@@ -97,31 +97,12 @@ height against `ZoneSystem.instance.m_waterLevel`, not by biome enum — check h
 
 ## Random Event / Raid System
 
-```csharp
-// Trigger a raid event at a position
-ZRoutedRpc.instance.InvokeRoutedRPC(
-    ZRoutedRpc.Everybody,
-    "SetEvent",
-    eventName,    // string — event name from RandEventSystem
-    duration,     // float — seconds
-    position);    // Vector3
-```
-
-Key class: `RandEventSystem` — decompile to find event names and the `IsEventActive` field.
+Use the `SetEvent` RPC — see `MODDING_NETWORKING.md` for the signature.
+Key class: `RandEventSystem` — decompile to find event names and `IsEventActive`.
 
 ---
 
 ## Spawning Monsters
 
-```csharp
-ZRoutedRpc.instance.InvokeRoutedRPC(
-    ZRoutedRpc.Everybody,
-    "SpawnObject",
-    spawnPos,
-    Quaternion.identity,
-    prefabName.GetStableHashCode());
-```
-
-Fire-and-forget — no despawn handle. The spawned creature's ZDO ownership is claimed
-by the nearest client, making server-side `ZDOMan.DestroyZDO()` unreliable for cleanup.
-Use event monsters only if you don't need to clean them up individually.
+See `SpawnObject` RPC in `MODDING_NETWORKING.md`. Fire-and-forget — no despawn handle.
+The nearest client claims ZDO ownership, making server-side cleanup unreliable.
