@@ -29,7 +29,7 @@ HOME        = Path.home()
 SERVER_DIR  = Path(os.environ.get("VALHEIM_SERVER_DIR",  str(HOME / ".steam/steam/steamapps/common/Valheim dedicated server")))
 CLIENT_DIR  = Path(os.environ.get("VALHEIM_CLIENT_DIR",  str(HOME / ".steam/steam/steamapps/common/Valheim")))
 PROJECT_DIR = Path(os.environ.get("VALHEIM_PROJECT_DIR", str(HOME / "Projects")))
-LOGS_DIR    = Path(os.environ.get("VALHEIM_LOGS_DIR",    str(HOME / "ClaudeProjects/valheim/logs")))
+LOGS_DIR    = Path(os.environ.get("VALHEIM_LOGS_DIR",    str(HOME / "Projects/claude-sandbox/workspace/valheim/logs")))
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -321,24 +321,27 @@ def _package(project: str, log_path: Path) -> str:
 # ── Thunderstore publish ──────────────────────────────────────────────────────
 
 @mcp.tool()
-async def publish(project: str, community: str = "valheim") -> str:
+async def publish(project: str, community: str = "valheim", categories: list[str] = []) -> str:
     """
     Publish the packaged mod to Thunderstore.
     Uploads the ZIP from release/ (created by package()).
     Reads the auth token from the THUNDERSTORE_TOKEN environment variable.
 
     Args:
-        project:   Project folder name under ~/Projects (no path separators).
-        community: Thunderstore community slug (default: 'valheim').
+        project:    Project folder name under ~/Projects (no path separators).
+        community:  Thunderstore community slug (default: 'valheim').
+        categories: List of community category slugs to apply (e.g. ['client-side', 'server-side']).
+                    'ai-generated' is always included automatically.
+                    Use https://thunderstore.io/api/experimental/community/{community}/category/ to look up valid slugs.
 
     Always run build() and package() successfully before publishing.
     """
-    result = await asyncio.to_thread(_publish, project, community, LOGS_DIR / "publish.log")
-    _report("publish", {"project": project, "community": community}, result, result.startswith("PUBLISH SUCCEEDED"))
+    result = await asyncio.to_thread(_publish, project, community, categories, LOGS_DIR / "publish.log")
+    _report("publish", {"project": project, "community": community, "categories": categories}, result, result.startswith("PUBLISH SUCCEEDED"))
     return result
 
 
-def _publish(project: str, community: str, log_path: Path) -> str:
+def _publish(project: str, community: str, categories: list[str], log_path: Path) -> str:
     import httpx
 
     lines = [f"--- Started: {datetime.now()} ---"]
@@ -373,12 +376,13 @@ def _publish(project: str, community: str, log_path: Path) -> str:
 
         url = f"https://thunderstore.io/api/experimental/submission/upload/"
         headers = {"Authorization": f"Bearer {token}"}
+        all_categories = list({"ai-generated"} | set(categories))
+        lines.append(f"Categories: {all_categories}")
         metadata = json.dumps({
             "author_name": author_name,
             "communities": [community],
             "has_nsfw_content": False,
-            "categories": [],
-            "community_categories": {},
+            "community_categories": {community: all_categories},
         })
 
         with open(zip_path, "rb") as f:

@@ -26,7 +26,7 @@ from fastmcp import FastMCP
 HOME       = Path.home()
 SERVER_DIR = Path(os.environ.get("VALHEIM_SERVER_DIR", str(HOME / ".steam/steam/steamapps/common/Valheim dedicated server")))
 CLIENT_DIR = Path(os.environ.get("VALHEIM_CLIENT_DIR", str(HOME / ".steam/steam/steamapps/common/Valheim")))
-LOGS_DIR   = Path(os.environ.get("VALHEIM_LOGS_DIR",   str(HOME / "ClaudeProjects/valheim/logs")))
+LOGS_DIR   = Path(os.environ.get("VALHEIM_LOGS_DIR",   str(HOME / "Projects/claude-sandbox/workspace/valheim/logs")))
 
 VALHEIM_SERVER_CONTAINER = "valheim_server"
 VALHEIM_SERVER_IMAGE     = "valheim_server"
@@ -93,15 +93,17 @@ def start_steam() -> str:
 # ── Server lifecycle ──────────────────────────────────────────────────────────
 
 @mcp.tool()
-def start_server(script: str = "start_server.sh") -> str:
+def start_server(vanilla: bool = False) -> str:
     """
-    Start the Valheim dedicated server in a Docker container.
+    Start the Valheim dedicated server in a Docker container with BepInEx loaded.
     Builds the image first if it doesn't exist.
 
     Args:
-        script: Script to run inside the container (default: 'start_server.sh').
-                Must exist in the Valheim dedicated server directory.
+        vanilla: If True, skip BepInEx and run the plain server (start_server.sh).
+                 Default is False — BepInEx is always loaded unless explicitly bypassed.
     """
+    script = "start_server.sh" if vanilla else "run_bepinex.sh"
+
     inspect = subprocess.run(
         ["docker", "inspect", VALHEIM_SERVER_IMAGE],
         capture_output=True,
@@ -114,7 +116,7 @@ def start_server(script: str = "start_server.sh") -> str:
         )
         if build.returncode != 0:
             result = f"IMAGE BUILD FAILED ✗\n\n{build.stderr}"
-            _report("start_server", {"script": script}, result, False)
+            _report("start_server", {"vanilla": vanilla}, result, False)
             return result
 
     log_path = LOGS_DIR / "server.log"
@@ -126,13 +128,15 @@ def start_server(script: str = "start_server.sh") -> str:
              "--name", VALHEIM_SERVER_CONTAINER,
              "-v", "valheim_server_data:/root/.config/unity3d/IronGate/Valheim",
              "-v", f"{SERVER_DIR}:/irongate",
+             "-v", f"{SERVER_DIR}/BepInEx:/opt/valheim-server/BepInEx",
              VALHEIM_SERVER_IMAGE, script],
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    result = f"Server container starting (script: {script}). Monitor logs/server.log for output."
-    _report("start_server", {"script": script}, result, True)
+    mode = "vanilla (no BepInEx)" if vanilla else "BepInEx"
+    result = f"Server container starting [{mode}]. Monitor {log_path} for output."
+    _report("start_server", {"vanilla": vanilla}, result, True)
     return result
 
 
@@ -184,7 +188,7 @@ def start_client() -> str:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    result = "Client start initiated. Monitor logs/client.log for startup output."
+    result = f"Client start initiated. Monitor {log_path} for startup output."
     _report("start_client", {}, result, True)
     return result
 

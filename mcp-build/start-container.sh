@@ -17,10 +17,10 @@ docker run --rm -d \
     -v "$HOME/.steam/steam/steamapps/common/Valheim dedicated server:/opt/valheim-server" \
     -v "$HOME/.steam/steam/steamapps/common/Valheim:/opt/valheim-client" \
     -v "$HOME/Projects:/opt/projects" \
-    -v "$HOME/ClaudeProjects:/opt/claudeprojects" \
+    -v "$HOME/Projects/claude-sandbox/workspace:/opt/workspace" \
     -e VALHEIM_SERVER_DIR=/opt/valheim-server \
     -e VALHEIM_CLIENT_DIR=/opt/valheim-client \
     -e VALHEIM_PROJECT_DIR=/opt/projects \
-    -e VALHEIM_LOGS_DIR=/opt/claudeprojects/valheim/logs \
+    -e VALHEIM_LOGS_DIR=/opt/workspace/valheim/logs \
     ${THUNDERSTORE_TOKEN:+-e THUNDERSTORE_TOKEN="$THUNDERSTORE_TOKEN"} \
     valheim-mcp-build

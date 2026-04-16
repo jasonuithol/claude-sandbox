@@ -180,6 +180,22 @@ The dedicated server runs as a Docker container (`valheim_server`).
 | `stop_server()` | Stop the server container gracefully (`docker stop`) |
 | `kill_server()` | Kill the server container immediately (`docker kill`) |
 
+#### Server config files (adminlist, bannedlist, etc.)
+
+The server container uses a **named podman volume** (`valheim_server_data`)
+mounted at `/root/.config/unity3d/IronGate/Valheim`. This is where the server
+reads `adminlist.txt`, `bannedlist.txt`, and `permittedlist.txt` at runtime.
+
+On the host, this volume lives at:
+```
+~/.local/share/containers/storage/volumes/valheim_server_data/_data/
+```
+
+Edit that copy directly — it is NOT the same as `~/.config/unity3d/IronGate/Valheim/`
+(which is the client's copy and is not mapped into the container).
+
+Use the `Steam_` prefix format for player IDs (e.g. `Steam_44445555666677788`).
+
 ### Client Control and Steam (`valheim-control`)
 
 | Tool | Description |
@@ -232,8 +248,8 @@ automatically from normal tool usage.
 
 ## Logs
 
-All tool logs are written to `~/ClaudeProjects/valheim/logs/` on the host
-(mounted into the mcp-build container at `/opt/claudeprojects/valheim/logs/`),
+All tool logs are written to `~/Projects/claude-sandbox/workspace/valheim/logs/` on the host
+(mounted into the mcp-build container at `/opt/workspace/valheim/logs/`),
 and are also returned directly in the tool response.
 
 | File | Written by |
@@ -269,6 +285,11 @@ BepInEx logs are at:
 - Server: `/workspace/valheim/server/BepInEx/LogOutput.log`
 - Client: `/workspace/valheim/client/BepInEx/LogOutput.log`
 
+> **Warning:** The server log only stays live if the BepInEx volume mount is in place.
+> `start_server` in mcp-control mounts `{SERVER_DIR}/BepInEx` → `/opt/valheim-server/BepInEx`
+> inside the container. Without this mount the container writes to its own internal path and
+> the file at `/workspace/valheim/server/BepInEx/LogOutput.log` goes stale after the first run.
+
 ---
 
 ## Testing the MCP Servers
@@ -300,7 +321,7 @@ EOF
 | File | Purpose |
 |------|---------|
 | `mcp-build/mcp-service.py` | Build MCP implementation (container, port 5172) |
-| `mcp-build/Dockerfile` | Container image definition |
+| `mcp-build/Dockerfile` | Build MCP container image definition |
 | `mcp-build/build-container.sh` | Build the container image |
 | `mcp-build/start-container.sh` | Start the container |
 | `mcp-control/mcp-service.py` | Control MCP implementation (host process, port 5173) |
@@ -315,7 +336,7 @@ EOF
   build/deploy tools simultaneously.
 - Server and client start tools are non-blocking — check logs to confirm
   successful startup.
-- The package zip is written to `release/tarbaby-<modname>-<version>.zip`
+- The package zip is written to `release/<teamname>-<modname>-<version>.zip`
   inside the project directory. If `ThunderstoreAssets/CHANGELOG.md` exists
   it is included in the zip.
 - Path environment variables can override default mount points:

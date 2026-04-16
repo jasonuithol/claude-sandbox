@@ -14,7 +14,7 @@ podman run -it --rm \
   --network=host \
   -v ~/.claude:/home/claude/.claude:Z \
   -v ~/.claude.json:/home/claude/.claude.json:Z \
-  -v ~/ClaudeProjects:/workspace:Z \
+  -v "$HOME/Projects/claude-sandbox/workspace":/workspace:Z \
   -v "$HOME/.steam/steam/steamapps/common/Valheim dedicated server":/workspace/valheim/server:Z \
   -v "$HOME/.steam/steam/steamapps/common/Valheim":/workspace/valheim/client:Z \
   -v "$DIR/docs":/workspace/docs:Z \
