@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONTAINER_NAME="mcp-knowledge"
+CONTAINER_NAME="valheim-mcp-knowledge"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KNOWLEDGE_DIR="$SCRIPT_DIR/knowledge"
 MODEL_DIR="$SCRIPT_DIR/models/all-MiniLM-L6-v2"
@@ -26,8 +26,9 @@ else
         --network host \
         --device nvidia.com/gpu=all \
         -e ONNX_PROVIDERS=CUDAExecutionProvider \
+        -e PORT=5184 \
         -v "$KNOWLEDGE_DIR:/opt/knowledge" \
         -v "$MODEL_DIR:/root/.cache/chroma/onnx_models/all-MiniLM-L6-v2:ro" \
         -v "$HOME/Projects:/opt/projects:ro" \
-        mcp-knowledge
+        valheim-mcp-knowledge
 fi

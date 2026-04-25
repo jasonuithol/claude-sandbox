@@ -32,6 +32,6 @@ else
     fuser -k -TERM 5173/tcp 2>/dev/null && echo "  stopped" || echo "  not running"
 fi
 
-stop_container mcp-knowledge
+stop_container valheim-mcp-knowledge
 
 echo "Done."

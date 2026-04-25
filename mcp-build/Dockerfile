@@ -31,7 +31,10 @@ RUN dotnet tool install -g ilspycmd --version 9.1.0.7988
 
 # ── Python dependencies ────────────────────────────────────────────────────────
 
-RUN pip install --no-cache-dir fastmcp
+RUN pip install --no-cache-dir \
+    fastmcp \
+    httpx \
+    "mcp-knowledge-base @ git+https://github.com/jasonuithol/mcp-knowledge-base.git@v0.2.1"
 
 # ── App ────────────────────────────────────────────────────────────────────────
 

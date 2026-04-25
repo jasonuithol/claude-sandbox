@@ -16,4 +16,4 @@ if [ ! -f "$MODEL_DIR/onnx/model.onnx" ]; then
     echo "Model downloaded to $MODEL_DIR"
 fi
 
-docker build -t mcp-knowledge "$SCRIPT_DIR"
+docker build -t valheim-mcp-knowledge "$SCRIPT_DIR"

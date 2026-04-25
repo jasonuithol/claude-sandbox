@@ -20,6 +20,7 @@ from pathlib import Path
 
 import httpx
 from fastmcp import FastMCP
+from mcp_knowledge_base import KnowledgeReporter
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -93,21 +94,8 @@ def _container_to_host(container_path: str) -> str:
 
 # ── Knowledge reporter ────────────────────────────────────────────────────────
 
-_KNOWLEDGE_URL = "http://localhost:5174/ingest"
-
-def _report(tool: str, args: dict, result: str, success: bool):
-    """Fire-and-forget report to mcp-knowledge. Never raises."""
-    try:
-        httpx.post(_KNOWLEDGE_URL, json={
-            "tool": tool,
-            "args": args,
-            "result": result,
-            "success": success,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "service": "mcp-build",
-        }, timeout=2)
-    except Exception:
-        pass
+_reporter = KnowledgeReporter(service="mcp-build")
+_report = _reporter.report
 
 
 # ── Subprocess helpers ────────────────────────────────────────────────────────

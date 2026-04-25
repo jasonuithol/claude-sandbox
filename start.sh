@@ -37,4 +37,4 @@ echo "Claude exited. Stopping MCP services..."
 kill "$CONTROL_PID" 2>/dev/null || true
 # Stop (don't remove) so the next start.sh revives the same containers and
 # preserves any in-container state. Use ./clean.sh for a full teardown.
-docker stop valheim-mcp-build mcp-knowledge 2>/dev/null || true
+docker stop valheim-mcp-build valheim-mcp-knowledge 2>/dev/null || true

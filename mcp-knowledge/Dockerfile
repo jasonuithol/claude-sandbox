@@ -18,6 +18,6 @@ COPY ingest/ ingest/
 # Knowledge volume mount point
 RUN mkdir -p /opt/knowledge
 
-EXPOSE 5174
+EXPOSE 5184
 
 CMD ["python3", "mcp-service.py"]

@@ -18,6 +18,6 @@ remove_one() {
 }
 
 remove_one valheim-mcp-build
-remove_one mcp-knowledge
+remove_one valheim-mcp-knowledge
 
 echo "Done."

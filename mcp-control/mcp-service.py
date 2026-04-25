@@ -14,12 +14,11 @@ Or on the host directly:
 
 import os
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
-import httpx
 import psutil
 from fastmcp import FastMCP
+from mcp_knowledge_base import KnowledgeReporter
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -35,21 +34,8 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Knowledge reporter ────────────────────────────────────────────────────────
 
-_KNOWLEDGE_URL = "http://localhost:5174/ingest"
-
-def _report(tool: str, args: dict, result: str, success: bool):
-    """Fire-and-forget report to mcp-knowledge. Never raises."""
-    try:
-        httpx.post(_KNOWLEDGE_URL, json={
-            "tool": tool,
-            "args": args,
-            "result": result,
-            "success": success,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "service": "mcp-control",
-        }, timeout=2)
-    except Exception:
-        pass
+_reporter = KnowledgeReporter(service="mcp-control")
+_report = _reporter.report
 
 
 # ── MCP server ────────────────────────────────────────────────────────────────

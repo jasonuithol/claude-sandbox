@@ -1,4 +1,4 @@
-mcp-knowledge-base @ git+https://github.com/jasonuithol/mcp-knowledge-base.git@v0.1.0
+mcp-knowledge-base[server] @ git+https://github.com/jasonuithol/mcp-knowledge-base.git@v0.2.1
 fastmcp>=2.0.0
 chromadb>=1.0.0
 uvicorn>=0.34.0

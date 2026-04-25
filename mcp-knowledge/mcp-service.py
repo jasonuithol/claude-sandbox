@@ -27,17 +27,15 @@ from ingest.router import ValheimIngestRouter
 # ---------------------------------------------------------------------------
 
 PROJECTS_DIR = os.environ.get("PROJECTS_DIR", "/opt/projects")
-COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "valheim_knowledge")
-PORT = int(os.environ.get("PORT", "5174"))
 
 # ---------------------------------------------------------------------------
 # Service assembly
 # ---------------------------------------------------------------------------
 
-svc = KnowledgeService(ServiceConfig(
-    name="mcp-knowledge",
-    collection_name=COLLECTION_NAME,
-    port=PORT,
+svc = KnowledgeService(ServiceConfig.from_env(
+    name="valheim-knowledge",
+    collection_name="valheim_knowledge",
+    port=5184,
     header_keys=["class_name", "method_name"],
 ))
 

@@ -30,6 +30,7 @@ else
         -e VALHEIM_CLIENT_DIR=/opt/valheim-client \
         -e VALHEIM_PROJECT_DIR=/opt/projects \
         -e VALHEIM_LOGS_DIR=/opt/workspace/valheim/logs \
+        -e KNOWLEDGE_URL=http://localhost:5184/ingest \
         ${THUNDERSTORE_TOKEN:+-e THUNDERSTORE_TOKEN="$THUNDERSTORE_TOKEN"} \
         valheim-mcp-build
 fi
