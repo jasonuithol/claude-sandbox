@@ -15,15 +15,19 @@ if [ ! -f "$MODEL_DIR/onnx/model.onnx" ]; then
     exit 1
 fi
 
-# Stop existing container if running
-docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-
-docker run -d \
-    --name "$CONTAINER_NAME" \
-    --network host \
-    --device nvidia.com/gpu=all \
-    -e ONNX_PROVIDERS=CUDAExecutionProvider \
-    -v "$KNOWLEDGE_DIR:/opt/knowledge" \
-    -v "$MODEL_DIR:/root/.cache/chroma/onnx_models/all-MiniLM-L6-v2:ro" \
-    -v "$HOME/Projects:/opt/projects:ro" \
-    mcp-knowledge
+# Revive a leftover container from a prior run if one exists; otherwise
+# create a fresh one. ChromaDB state lives in the $KNOWLEDGE_DIR volume
+# either way, so reviving preserves the seeded index without re-embedding.
+if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+    docker start "$CONTAINER_NAME" >/dev/null
+else
+    docker run -d \
+        --name "$CONTAINER_NAME" \
+        --network host \
+        --device nvidia.com/gpu=all \
+        -e ONNX_PROVIDERS=CUDAExecutionProvider \
+        -v "$KNOWLEDGE_DIR:/opt/knowledge" \
+        -v "$MODEL_DIR:/root/.cache/chroma/onnx_models/all-MiniLM-L6-v2:ro" \
+        -v "$HOME/Projects:/opt/projects:ro" \
+        mcp-knowledge
+fi

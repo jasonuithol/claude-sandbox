@@ -16,7 +16,8 @@ PATTERN_TAGS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Emote|StartEmote|StopEmote", re.IGNORECASE), "emote"),
     (re.compile(r"Anim|ZSyncAnimation|SetTrigger", re.IGNORECASE), "animation"),
     (re.compile(r"Teleport|TeleportTo|TeleportWorld", re.IGNORECASE), "teleport"),
-    (re.compile(r"Minimap|Pin|MapData", re.IGNORECASE), "minimap"),
+    # \bPin\b — bare word only, to avoid matching Plugin, Mapping, Opinion, Sniping, etc.
+    (re.compile(r"Minimap|\bPin\b|PinData|AddPin|RemovePin|GetClosestPin|MapData", re.IGNORECASE), "minimap"),
     (re.compile(r"Piece|WearNTear|PlacePiece", re.IGNORECASE), "building"),
     (re.compile(r"Raid|RandEventSystem|RandEvent", re.IGNORECASE), "raid"),
     (re.compile(r"VisEquipment|AttachItem|SetModel", re.IGNORECASE), "visual-equip"),

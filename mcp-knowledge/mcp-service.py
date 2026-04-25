@@ -14,7 +14,15 @@ import chromadb
 import httpx
 from fastmcp import FastMCP
 
-from ingest.chunker import chunk_decompile, chunk_docs, chunk_mod_source
+from ingest.chunker import (
+    chunk_decompile,
+    chunk_docs,
+    chunk_mod_source,
+    tag_flags,
+    tag_key,
+    upsert_chunks,
+)
+from ingest.extractors import PATTERN_TAGS, detect_tags, extract_class_name
 from ingest.router import IngestRouter
 
 # ---------------------------------------------------------------------------
@@ -74,13 +82,18 @@ def ask_class(class_name: str) -> str:
 
 @mcp.tool()
 def ask_tagged(question: str, tags: list[str]) -> str:
-    """Filtered semantic search — restrict results by tags like 'rpc', 'zdo', 'weather'."""
-    # ChromaDB $contains does substring match on metadata fields
-    # We filter by checking each tag appears in the comma-separated tags field
-    if len(tags) == 1:
-        where = {"tags": {"$contains": tags[0]}}
+    """Filtered semantic search — restrict results by tags like 'rpc', 'zdo', 'weather'.
+
+    Tags are stored as individual boolean metadata keys (`tag_<name>: True`)
+    because ChromaDB's metadata filters don't support substring matching.
+    """
+    keys = [tag_key(t) for t in tags if t]
+    if not keys:
+        where = None
+    elif len(keys) == 1:
+        where = {keys[0]: True}
     else:
-        where = {"$and": [{"tags": {"$contains": t}} for t in tags]}
+        where = {"$and": [{k: True} for k in keys]}
 
     results = collection.query(
         query_texts=[question],
@@ -182,11 +195,7 @@ def seed_docs(docs_path: str) -> str:
         text = md_file.read_text(encoding="utf-8")
         chunks = chunk_docs(text, name)
         if chunks:
-            collection.upsert(
-                ids=[c["id"] for c in chunks],
-                documents=[c["document"] for c in chunks],
-                metadatas=[c["metadata"] for c in chunks],
-            )
+            upsert_chunks(collection, chunks)
             total_chunks += len(chunks)
             files_indexed.append(f"  {name}: {len(chunks)} chunks")
 
@@ -196,6 +205,147 @@ def seed_docs(docs_path: str) -> str:
     return (
         f"Indexed {total_chunks} chunks from {len(files_indexed)} files:\n"
         + "\n".join(files_indexed)
+    )
+
+
+@mcp.tool()
+def retag_all() -> str:
+    """Re-run tag auto-detection against every chunk's document.
+
+    Use this after tightening or extending the detection regexes in
+    ingest/extractors.py. Content-derived tags (those in PATTERN_TAGS) are
+    dropped and re-detected from the document body; provenance tags
+    (project names, mod-source, successful-example, build-error, etc.) are
+    preserved untouched.
+
+    Rewrites both the comma-joined `tags` string and the per-tag boolean
+    keys. Also strips stale `tag_<name>` keys that no longer apply.
+    """
+    content_tag_set = {name for _, name in PATTERN_TAGS}
+    content_tag_keys = {tag_key(t) for t in content_tag_set}
+
+    existing = collection.get(include=["metadatas", "documents"])
+    ids = existing["ids"]
+    if not ids:
+        return "Collection is empty."
+
+    changed = 0
+    BATCH = 5000
+    for i in range(0, len(ids), BATCH):
+        batch_ids = ids[i:i + BATCH]
+        batch_metas = existing["metadatas"][i:i + BATCH]
+        batch_docs = existing["documents"][i:i + BATCH]
+
+        new_metas = []
+        for meta, doc in zip(batch_metas, batch_docs):
+            old_tags_str = meta.get("tags", "")
+            old_tags = [t.strip() for t in old_tags_str.split(",") if t.strip()]
+
+            # Keep everything that isn't a content-derived tag
+            provenance = [t for t in old_tags if t not in content_tag_set]
+            # Re-detect content tags from the document body
+            redetected = detect_tags(doc or "")
+            new_tags = provenance + [t for t in redetected if t not in provenance]
+
+            # Build fresh metadata: drop all old tag_* content keys, then set
+            # the new ones. Non-content tag_* keys (e.g. tag_mod_source,
+            # tag_<project>) are preserved because they were added via
+            # tag_flags(provenance) below from the preserved provenance list.
+            new_meta = {k: v for k, v in meta.items() if k not in content_tag_keys}
+            new_meta["tags"] = ",".join(new_tags)
+            new_meta.update(tag_flags(new_tags))
+
+            new_metas.append(new_meta)
+            if new_tags != old_tags:
+                changed += 1
+
+        collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=new_metas)
+
+    return f"Retagged {len(ids)} chunks; {changed} had tag changes."
+
+
+@mcp.tool()
+def backfill_tag_keys() -> str:
+    """One-shot: add tag_<name>: True metadata keys to all existing chunks.
+
+    Existing chunks store tags only in the comma-joined `tags` string, which
+    can't be filtered via ChromaDB metadata `where` clauses. This walks the
+    whole collection and upserts each chunk's metadata with the boolean
+    tag_* keys derived from that string.
+    """
+    existing = collection.get(include=["metadatas", "documents"])
+    ids = existing["ids"]
+    if not ids:
+        return "Collection is empty — nothing to backfill."
+
+    updated = 0
+    BATCH = 5000
+    for i in range(0, len(ids), BATCH):
+        batch_ids = ids[i:i + BATCH]
+        batch_metas = existing["metadatas"][i:i + BATCH]
+        batch_docs = existing["documents"][i:i + BATCH]
+
+        new_metas = []
+        for meta in batch_metas:
+            tag_str = meta.get("tags", "")
+            tags = [t.strip() for t in tag_str.split(",") if t.strip()]
+            meta = {**meta, **tag_flags(tags)}
+            new_metas.append(meta)
+
+        collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=new_metas)
+        updated += len(batch_ids)
+
+    return f"Backfilled tag_* keys on {updated} chunks."
+
+
+@mcp.tool()
+def seed_mod_source(project: str, source_dir: str, extra_tags: list[str] = None) -> str:
+    """Index the source code of a mod or modding library.
+
+    Walks *.cs files under source_dir (skipping bin/ and obj/), one chunk per
+    file. Each chunk is tagged `mod-source` plus any tags in `extra_tags`.
+
+    Args:
+        project: Project name (used in source metadata, tags, and chunk IDs).
+        source_dir: Directory containing the .cs files. Absolute paths
+            are used as-is; relative paths resolve under PROJECTS_DIR.
+        extra_tags: Tags prepended to each chunk's tag list. Defaults to
+            `["successful-example"]` — pass e.g. `["library","jotunn"]` when
+            indexing a library rather than a shipped mod.
+    """
+    if extra_tags is None:
+        extra_tags = ["successful-example"]
+
+    src_dir = Path(source_dir)
+    if not src_dir.is_absolute():
+        src_dir = Path(PROJECTS_DIR) / source_dir
+    if not src_dir.is_dir():
+        return f"Directory not found: {src_dir}"
+
+    cs_files = [
+        p for p in src_dir.rglob("*.cs")
+        if "bin" not in p.parts and "obj" not in p.parts
+    ]
+    if not cs_files:
+        return f"No .cs files found under {src_dir}"
+
+    tag_prefix = ",".join(extra_tags) + ("," if extra_tags else "")
+    all_chunks = []
+    for cs in cs_files:
+        text = cs.read_text(encoding="utf-8", errors="replace")
+        class_name = extract_class_name(text) or cs.stem
+        chunks = chunk_mod_source(text, project, class_name)
+        for c in chunks:
+            c["id"] = f"mod-source/{project}/{cs.stem}"
+            c["metadata"]["tags"] = tag_prefix + c["metadata"]["tags"]
+        all_chunks.extend(chunks)
+
+    if all_chunks:
+        upsert_chunks(collection, all_chunks)
+
+    return (
+        f"Indexed {len(all_chunks)} chunks from {len(cs_files)} .cs files "
+        f"in project '{project}'"
     )
 
 
@@ -215,12 +365,7 @@ def seed_decompile(decompiled_source: str) -> str:
     if chunks:
         BATCH = 5000
         for i in range(0, len(chunks), BATCH):
-            batch = chunks[i:i + BATCH]
-            collection.upsert(
-                ids=[c["id"] for c in batch],
-                documents=[c["document"] for c in batch],
-                metadatas=[c["metadata"] for c in batch],
-            )
+            upsert_chunks(collection, chunks[i:i + BATCH])
 
     # Summarise what was indexed
     classes = {c["metadata"]["class_name"] for c in chunks}

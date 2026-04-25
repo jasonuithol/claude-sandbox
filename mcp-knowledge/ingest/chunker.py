@@ -12,6 +12,40 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_TAG_KEY_RE = re.compile(r"[^a-z0-9_]")
+
+
+def tag_key(tag: str) -> str:
+    """Normalise a tag into a metadata key: 'status-effect' -> 'tag_status_effect'.
+
+    ChromaDB's `where` filter has no $contains operator for metadata — the only
+    reliable way to filter by tag is to store each tag as its own boolean key.
+    """
+    return "tag_" + _TAG_KEY_RE.sub("_", tag.lower())
+
+
+def tag_flags(tags: list[str]) -> dict:
+    """Return a dict of {tag_<name>: True} entries for each tag in the list."""
+    return {tag_key(t): True for t in tags if t}
+
+
+def upsert_chunks(collection, chunks: list[dict]) -> None:
+    """Upsert chunks into ChromaDB, expanding the comma-joined `tags` metadata
+    into individual `tag_<name>: True` boolean keys so they can be filtered
+    via ChromaDB's metadata `where` clause (which has no $contains operator)."""
+    if not chunks:
+        return
+    for c in chunks:
+        tag_str = c["metadata"].get("tags", "")
+        tag_list = [t.strip() for t in tag_str.split(",") if t.strip()]
+        c["metadata"].update(tag_flags(tag_list))
+    collection.upsert(
+        ids=[c["id"] for c in chunks],
+        documents=[c["document"] for c in chunks],
+        metadatas=[c["metadata"] for c in chunks],
+    )
+
+
 def chunk_decompile(source: str, dll_name: str = "assembly_valheim") -> list[dict]:
     """Chunk decompiled DLL output by class and method.
 
@@ -39,8 +73,7 @@ def chunk_decompile(source: str, dll_name: str = "assembly_valheim") -> list[dic
                     "method_name": "",
                     "tags": ",".join(tags),
                     "indexed_at": now,
-                    "project": "",
-                },
+                    "project": "",                },
             })
             continue
 
@@ -61,8 +94,7 @@ def chunk_decompile(source: str, dll_name: str = "assembly_valheim") -> list[dic
                     "method_name": name,
                     "tags": ",".join(tags),
                     "indexed_at": now,
-                    "project": "",
-                },
+                    "project": "",                },
             })
 
     # Deduplicate IDs globally (e.g. generic class variants with the same name)
@@ -116,6 +148,7 @@ def chunk_docs(text: str, filename: str) -> list[dict]:
                 "tags": ",".join(tags),
                 "indexed_at": now,
                 "project": "",
+                **tag_flags(tags),
             },
         })
 
@@ -136,6 +169,7 @@ def chunk_build_error(error_text: str, project: str) -> dict:
             "tags": ",".join(tags),
             "indexed_at": _now_iso(),
             "project": project,
+            **tag_flags(tags),
         },
     }
 
@@ -155,6 +189,7 @@ def chunk_build_fix(error_text: str, fix_context: str, project: str) -> dict:
             "tags": ",".join(tags),
             "indexed_at": _now_iso(),
             "project": project,
+            **tag_flags(tags),
         },
     }
 

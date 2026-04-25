@@ -11,16 +11,25 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     set +a
 fi
 
-docker run --rm -d \
-    --name valheim-mcp-build \
-    --network host \
-    -v "$HOME/.steam/steam/steamapps/common/Valheim dedicated server:/opt/valheim-server" \
-    -v "$HOME/.steam/steam/steamapps/common/Valheim:/opt/valheim-client" \
-    -v "$HOME/Projects:/opt/projects" \
-    -v "$HOME/Projects/claude-sandbox/workspace:/opt/workspace" \
-    -e VALHEIM_SERVER_DIR=/opt/valheim-server \
-    -e VALHEIM_CLIENT_DIR=/opt/valheim-client \
-    -e VALHEIM_PROJECT_DIR=/opt/projects \
-    -e VALHEIM_LOGS_DIR=/opt/workspace/valheim/logs \
-    ${THUNDERSTORE_TOKEN:+-e THUNDERSTORE_TOKEN="$THUNDERSTORE_TOKEN"} \
-    valheim-mcp-build
+CONTAINER_NAME="valheim-mcp-build"
+
+# Revive a leftover container from a prior run if one exists (e.g. when the
+# previous start.sh was killed before its cleanup ran). Otherwise create a
+# fresh one.
+if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+    docker start "$CONTAINER_NAME" >/dev/null
+else
+    docker run -d \
+        --name "$CONTAINER_NAME" \
+        --network host \
+        -v "$HOME/.steam/steam/steamapps/common/Valheim dedicated server:/opt/valheim-server" \
+        -v "$HOME/.steam/steam/steamapps/common/Valheim:/opt/valheim-client" \
+        -v "$HOME/Projects:/opt/projects" \
+        -v "$HOME/Projects/claude-sandbox/workspace:/opt/workspace" \
+        -e VALHEIM_SERVER_DIR=/opt/valheim-server \
+        -e VALHEIM_CLIENT_DIR=/opt/valheim-client \
+        -e VALHEIM_PROJECT_DIR=/opt/projects \
+        -e VALHEIM_LOGS_DIR=/opt/workspace/valheim/logs \
+        ${THUNDERSTORE_TOKEN:+-e THUNDERSTORE_TOKEN="$THUNDERSTORE_TOKEN"} \
+        valheim-mcp-build
+fi

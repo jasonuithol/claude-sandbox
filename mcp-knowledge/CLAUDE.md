@@ -274,9 +274,14 @@ Every chunk stored in ChromaDB carries:
     "type": "method",                                 # method | section | error | pattern
     "class_name": "Player",                           # if applicable
     "method_name": "StartEmote",                      # if applicable
-    "tags": "emote,player,animation",                 # comma-separated
+    "tags": "emote,player,animation",                 # comma-separated, for display
     "indexed_at": "2026-04-12T07:45:00Z",            # when it was added
     "project": "",                                    # if from a specific mod project
+    # Plus one boolean key per tag, used for `where`-clause filtering in
+    # ask_tagged (ChromaDB metadata has no $contains operator):
+    "tag_emote": True,
+    "tag_player": True,
+    "tag_animation": True,
 }
 ```
 
@@ -407,10 +412,21 @@ payloads specifically (they're already async, so the extra wait doesn't
 block the caller). Or have the `/ingest` endpoint accept the payload
 immediately, return 202, and do the chunking/indexing in a background task.
 
-### 6. ChromaDB `$contains` is case-sensitive
+### 6. ~~ChromaDB `$contains` is case-sensitive~~ — misdiagnosed, now fixed
 
-`ask_tagged("query", ["Build-Fix"])` won't match a tag stored as
-`build-fix`. Tags are stored lowercase, so queries must also be lowercase.
-The `ask_tagged` tool should normalise tag inputs to lowercase before
-querying. The `ask()` tool (pure semantic search, no tag filter) is
-unaffected.
+**Original note claimed** the issue was case sensitivity on `$contains`. That
+was wrong. The real problem: ChromaDB's metadata `where` clause has **no
+`$contains` operator at all** — it's only valid in a `where_document` clause
+against chunk bodies. The old `ask_tagged` implementation passed
+`{"tags": {"$contains": t}}` as a metadata filter, which silently returned
+zero matches regardless of case.
+
+**Fix (2026-04-20):** tags are now stored as individual boolean metadata
+keys (`tag_rpc: True`, `tag_successful_example: True`, ...) in addition to
+the comma-joined `tags` string kept for display. `ask_tagged` filters via
+`{"tag_<name>": True}` (or `$and` of those for multi-tag queries). Tag names
+are normalised via `tag_key()` in `ingest/chunker.py` — lowercase,
+non-alphanumeric → underscore (so `status-effect` → `tag_status_effect`).
+
+Existing chunks were retrofitted via the `backfill_tag_keys()` MCP tool,
+which can be re-run idempotently if needed.

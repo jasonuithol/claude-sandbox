@@ -176,7 +176,7 @@ The dedicated server runs as a Docker container (`valheim_server`).
 
 | Tool | Description |
 |------|-------------|
-| `start_server(script)` | Start the server container. Builds the image if needed. `script` defaults to `start_server.sh` |
+| `start_server(vanilla)` | Start the server container. Builds the image if needed. `vanilla=False` (default) loads BepInEx; `vanilla=True` runs plain `start_server.sh` |
 | `stop_server()` | Stop the server container gracefully (`docker stop`) |
 | `kill_server()` | Kill the server container immediately (`docker kill`) |
 
@@ -202,7 +202,7 @@ Use the `Steam_` prefix format for player IDs (e.g. `Steam_44445555666677788`).
 |------|-------------|
 | `steam_status()` | Check whether Steam is running on the host |
 | `start_steam()` | Launch Steam on the host. Non-blocking |
-| `start_client()` | Start the client via `run_bepinex.sh`. Non-blocking |
+| `start_client(extra_args)` | Start the client via `run_bepinex.sh`. Non-blocking. `extra_args` (list, default `[]`) are appended after all other flags — e.g. `["-skipIntro"]` |
 | `stop_client()` | Stop the client process |
 
 ### Knowledge Base (`valheim-knowledge`, port 5174)

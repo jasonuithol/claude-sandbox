@@ -12,6 +12,7 @@ from .chunker import (
     chunk_build_fix,
     chunk_decompile,
     chunk_publish,
+    upsert_chunks,
 )
 from .extractors import extract_cs_errors
 
@@ -82,11 +83,7 @@ class IngestRouter:
         """Upsert chunks into ChromaDB."""
         if not chunks:
             return
-        self.collection.upsert(
-            ids=[c["id"] for c in chunks],
-            documents=[c["document"] for c in chunks],
-            metadatas=[c["metadata"] for c in chunks],
-        )
+        upsert_chunks(self.collection, chunks)
         logger.info("Indexed %d chunks", len(chunks))
 
     def route(self, payload: dict) -> dict:

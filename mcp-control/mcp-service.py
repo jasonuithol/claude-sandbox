@@ -90,6 +90,41 @@ def start_steam() -> str:
     return result
 
 
+@mcp.tool()
+def stop_steam() -> str:
+    """Stop Steam gracefully by sending SIGTERM to all Steam processes."""
+    procs = [p for p in psutil.process_iter(["name"])
+             if p.info["name"] in ("steam", "steam.exe")]
+    if not procs:
+        result = "Steam is not running."
+        _report("stop_steam", {}, result, True)
+        return result
+    for p in procs:
+        p.terminate()
+    gone, alive = psutil.wait_procs(procs, timeout=10)
+    if alive:
+        result = f"Steam did not exit cleanly; {len(alive)} process(es) still alive. Try restart_steam or kill manually."
+    else:
+        result = f"Steam stopped ({len(gone)} process(es) terminated)."
+    _report("stop_steam", {}, result, not bool(alive))
+    return result
+
+
+@mcp.tool()
+def restart_steam() -> str:
+    """Stop Steam (if running) and start it again. Non-blocking — use steam_status() to confirm startup."""
+    procs = [p for p in psutil.process_iter(["name"])
+             if p.info["name"] in ("steam", "steam.exe")]
+    if procs:
+        for p in procs:
+            p.terminate()
+        psutil.wait_procs(procs, timeout=10)
+    subprocess.Popen(["steam"], start_new_session=True)
+    result = "Steam restarted."
+    _report("restart_steam", {}, result, True)
+    return result
+
+
 # ── Server lifecycle ──────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -175,21 +210,29 @@ def kill_server() -> str:
 # ── Client lifecycle ──────────────────────────────────────────────────────────
 
 @mcp.tool()
-def start_client() -> str:
-    """Start the Valheim client via BepInEx. Non-blocking — check logs/client.log for startup progress."""
+def start_client(extra_args: list[str] = []) -> str:
+    """
+    Start the Valheim client via BepInEx. Non-blocking — check logs/client.log for startup progress.
+
+    Args:
+        extra_args: Additional flags appended to the launch command after all other arguments.
+                    Example: ["-skipIntro"] skips the intro cutscene (also prevents Unity
+                    freezing when the window loses focus during that sequence).
+    """
     log_path = LOGS_DIR / "client.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    cmd = ["./run_bepinex.sh", "valheim.x86_64", "-console"] + extra_args
     with open(log_path, "w") as log:
         subprocess.Popen(
-            ["./run_bepinex.sh", "valheim.x86_64", "-console"],
+            cmd,
             cwd=str(CLIENT_DIR),
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
     result = f"Client start initiated. Monitor {log_path} for startup output."
-    _report("start_client", {}, result, True)
+    _report("start_client", {"extra_args": extra_args}, result, True)
     return result
 
 
