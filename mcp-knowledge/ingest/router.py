@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_knowledge_base import IngestRouter
+
 from .chunker import (
     chunk_build_error,
     chunk_build_fix,
@@ -37,7 +39,7 @@ SKIP_TOOLS = {
 }
 
 
-class IngestRouter:
+class ValheimIngestRouter(IngestRouter):
     """Routes incoming tool payloads to the appropriate chunking/indexing logic."""
 
     def __init__(self, collection: "chromadb.Collection"):

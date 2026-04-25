@@ -1,75 +1,60 @@
 """mcp-knowledge: RAG-backed Valheim modding knowledge service.
 
-FastMCP server (query + maintenance tools) with a plain HTTP /ingest endpoint
-for fire-and-forget reporting from mcp-build and mcp-control.
+Built on `mcp-knowledge-base`, which provides the FastMCP + ChromaDB +
+/ingest scaffolding. This module adds only the valheim-specific pieces:
+the chunker, the tag taxonomy, and the bespoke MCP seeding tools.
 """
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path
 
-import chromadb
-import httpx
-from fastmcp import FastMCP
+from mcp_knowledge_base import KnowledgeService, ServiceConfig
 
 from ingest.chunker import (
     chunk_decompile,
     chunk_docs,
     chunk_mod_source,
     tag_flags,
-    tag_key,
     upsert_chunks,
 )
 from ingest.extractors import PATTERN_TAGS, detect_tags, extract_class_name
-from ingest.router import IngestRouter
+from ingest.router import ValheimIngestRouter
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-KNOWLEDGE_DIR = os.environ.get("KNOWLEDGE_DIR", "/opt/knowledge")
 PROJECTS_DIR = os.environ.get("PROJECTS_DIR", "/opt/projects")
-MCP_BUILD_URL = os.environ.get("MCP_BUILD_URL", "http://localhost:5172")
+COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "valheim_knowledge")
 PORT = int(os.environ.get("PORT", "5174"))
 
-logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("mcp-knowledge")
-
 # ---------------------------------------------------------------------------
-# ChromaDB setup
+# Service assembly
 # ---------------------------------------------------------------------------
 
-chroma_client = chromadb.PersistentClient(path=KNOWLEDGE_DIR)
-collection = chroma_client.get_or_create_collection(
-    name="valheim_knowledge",
-    metadata={"hnsw:space": "cosine"},
-)
+svc = KnowledgeService(ServiceConfig(
+    name="mcp-knowledge",
+    collection_name=COLLECTION_NAME,
+    port=PORT,
+    header_keys=["class_name", "method_name"],
+))
 
-# ---------------------------------------------------------------------------
-# Ingest router
-# ---------------------------------------------------------------------------
+# Generic tools: ask, ask_tagged, list_sources, forget (prefix-match), stats.
+svc.register_default_tools()
+svc.register_retag_all(PATTERN_TAGS, detect_tags)
+svc.set_ingest_router(ValheimIngestRouter(svc.collection))
 
-router = IngestRouter(collection)
-
-# ---------------------------------------------------------------------------
-# FastMCP server
-# ---------------------------------------------------------------------------
-
-mcp = FastMCP("mcp-knowledge")
-
-# ---- Query tools ---------------------------------------------------------
+# Aliases for use inside tool closures
+collection = svc.collection
+mcp = svc.mcp
 
 
-@mcp.tool()
-def ask(question: str) -> str:
-    """Semantic search — returns the top 5 most relevant knowledge chunks."""
-    results = collection.query(query_texts=[question], n_results=5)
-    return _format_results(results)
+# ---- Domain-specific query tools -----------------------------------------
 
 
-@mcp.tool()
+@svc.tool()
 def ask_class(class_name: str) -> str:
     """Find all indexed knowledge about a specific Valheim class."""
     results = collection.query(
@@ -77,107 +62,13 @@ def ask_class(class_name: str) -> str:
         n_results=10,
         where={"class_name": class_name},
     )
-    return _format_results(results)
+    return svc.format_query(results)
 
 
-@mcp.tool()
-def ask_tagged(question: str, tags: list[str]) -> str:
-    """Filtered semantic search — restrict results by tags like 'rpc', 'zdo', 'weather'.
-
-    Tags are stored as individual boolean metadata keys (`tag_<name>: True`)
-    because ChromaDB's metadata filters don't support substring matching.
-    """
-    keys = [tag_key(t) for t in tags if t]
-    if not keys:
-        where = None
-    elif len(keys) == 1:
-        where = {keys[0]: True}
-    else:
-        where = {"$and": [{k: True} for k in keys]}
-
-    results = collection.query(
-        query_texts=[question],
-        n_results=5,
-        where=where,
-    )
-    return _format_results(results)
+# ---- Domain-specific seeding tools ---------------------------------------
 
 
-# ---- Maintenance tools ---------------------------------------------------
-
-
-@mcp.tool()
-def list_sources() -> str:
-    """List all indexed sources with chunk counts."""
-    all_meta = collection.get(include=["metadatas"])
-    sources: dict[str, int] = {}
-    for meta in all_meta["metadatas"]:
-        src = meta.get("source", "unknown")
-        sources[src] = sources.get(src, 0) + 1
-
-    if not sources:
-        return "No sources indexed yet."
-
-    lines = [f"  {src}: {count} chunks" for src, count in sorted(sources.items())]
-    return f"Indexed sources ({len(sources)}):\n" + "\n".join(lines)
-
-
-@mcp.tool()
-def forget(source: str) -> str:
-    """Remove all chunks from a source."""
-    # Get IDs matching this source
-    results = collection.get(where={"source": source}, include=[])
-    ids = results["ids"]
-    if not ids:
-        return f"No chunks found for source: {source}"
-    collection.delete(ids=ids)
-    return f"Deleted {len(ids)} chunks from source: {source}"
-
-
-@mcp.tool()
-def stats() -> str:
-    """Collection size, source breakdown, tag distribution."""
-    count = collection.count()
-    if count == 0:
-        return "Knowledge base is empty."
-
-    all_meta = collection.get(include=["metadatas"])
-
-    # Source breakdown
-    sources: dict[str, int] = {}
-    tags_count: dict[str, int] = {}
-    types: dict[str, int] = {}
-
-    for meta in all_meta["metadatas"]:
-        src = meta.get("source", "unknown")
-        sources[src] = sources.get(src, 0) + 1
-
-        chunk_type = meta.get("type", "unknown")
-        types[chunk_type] = types.get(chunk_type, 0) + 1
-
-        for tag in meta.get("tags", "").split(","):
-            tag = tag.strip()
-            if tag:
-                tags_count[tag] = tags_count.get(tag, 0) + 1
-
-    lines = [f"Total chunks: {count}", ""]
-
-    lines.append(f"Sources ({len(sources)}):")
-    for src, c in sorted(sources.items(), key=lambda x: -x[1])[:20]:
-        lines.append(f"  {src}: {c}")
-
-    lines.append(f"\nTypes:")
-    for t, c in sorted(types.items(), key=lambda x: -x[1]):
-        lines.append(f"  {t}: {c}")
-
-    lines.append(f"\nTop tags:")
-    for tag, c in sorted(tags_count.items(), key=lambda x: -x[1])[:20]:
-        lines.append(f"  {tag}: {c}")
-
-    return "\n".join(lines)
-
-
-@mcp.tool()
+@svc.tool()
 def seed_docs(docs_path: str) -> str:
     """One-time: index the curated MODDING_*.md and VALHEIM_*.md docs."""
     docs_dir = Path(docs_path)
@@ -208,97 +99,7 @@ def seed_docs(docs_path: str) -> str:
     )
 
 
-@mcp.tool()
-def retag_all() -> str:
-    """Re-run tag auto-detection against every chunk's document.
-
-    Use this after tightening or extending the detection regexes in
-    ingest/extractors.py. Content-derived tags (those in PATTERN_TAGS) are
-    dropped and re-detected from the document body; provenance tags
-    (project names, mod-source, successful-example, build-error, etc.) are
-    preserved untouched.
-
-    Rewrites both the comma-joined `tags` string and the per-tag boolean
-    keys. Also strips stale `tag_<name>` keys that no longer apply.
-    """
-    content_tag_set = {name for _, name in PATTERN_TAGS}
-    content_tag_keys = {tag_key(t) for t in content_tag_set}
-
-    existing = collection.get(include=["metadatas", "documents"])
-    ids = existing["ids"]
-    if not ids:
-        return "Collection is empty."
-
-    changed = 0
-    BATCH = 5000
-    for i in range(0, len(ids), BATCH):
-        batch_ids = ids[i:i + BATCH]
-        batch_metas = existing["metadatas"][i:i + BATCH]
-        batch_docs = existing["documents"][i:i + BATCH]
-
-        new_metas = []
-        for meta, doc in zip(batch_metas, batch_docs):
-            old_tags_str = meta.get("tags", "")
-            old_tags = [t.strip() for t in old_tags_str.split(",") if t.strip()]
-
-            # Keep everything that isn't a content-derived tag
-            provenance = [t for t in old_tags if t not in content_tag_set]
-            # Re-detect content tags from the document body
-            redetected = detect_tags(doc or "")
-            new_tags = provenance + [t for t in redetected if t not in provenance]
-
-            # Build fresh metadata: drop all old tag_* content keys, then set
-            # the new ones. Non-content tag_* keys (e.g. tag_mod_source,
-            # tag_<project>) are preserved because they were added via
-            # tag_flags(provenance) below from the preserved provenance list.
-            new_meta = {k: v for k, v in meta.items() if k not in content_tag_keys}
-            new_meta["tags"] = ",".join(new_tags)
-            new_meta.update(tag_flags(new_tags))
-
-            new_metas.append(new_meta)
-            if new_tags != old_tags:
-                changed += 1
-
-        collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=new_metas)
-
-    return f"Retagged {len(ids)} chunks; {changed} had tag changes."
-
-
-@mcp.tool()
-def backfill_tag_keys() -> str:
-    """One-shot: add tag_<name>: True metadata keys to all existing chunks.
-
-    Existing chunks store tags only in the comma-joined `tags` string, which
-    can't be filtered via ChromaDB metadata `where` clauses. This walks the
-    whole collection and upserts each chunk's metadata with the boolean
-    tag_* keys derived from that string.
-    """
-    existing = collection.get(include=["metadatas", "documents"])
-    ids = existing["ids"]
-    if not ids:
-        return "Collection is empty — nothing to backfill."
-
-    updated = 0
-    BATCH = 5000
-    for i in range(0, len(ids), BATCH):
-        batch_ids = ids[i:i + BATCH]
-        batch_metas = existing["metadatas"][i:i + BATCH]
-        batch_docs = existing["documents"][i:i + BATCH]
-
-        new_metas = []
-        for meta in batch_metas:
-            tag_str = meta.get("tags", "")
-            tags = [t.strip() for t in tag_str.split(",") if t.strip()]
-            meta = {**meta, **tag_flags(tags)}
-            new_metas.append(meta)
-
-        collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=new_metas)
-        updated += len(batch_ids)
-
-    return f"Backfilled tag_* keys on {updated} chunks."
-
-
-@mcp.tool()
+@svc.tool()
 def seed_mod_source(project: str, source_dir: str, extra_tags: list[str] = None) -> str:
     """Index the source code of a mod or modding library.
 
@@ -349,7 +150,7 @@ def seed_mod_source(project: str, source_dir: str, extra_tags: list[str] = None)
     )
 
 
-@mcp.tool()
+@svc.tool()
 def seed_decompile(decompiled_source: str) -> str:
     """Index decompiled source. Accepts output from a single class or an entire DLL.
 
@@ -372,94 +173,46 @@ def seed_decompile(decompiled_source: str) -> str:
     return f"Indexed {len(chunks)} chunks from {len(classes)} classes: {', '.join(sorted(classes))}"
 
 
-# ---------------------------------------------------------------------------
-# Result formatting
-# ---------------------------------------------------------------------------
+# ---- One-shot maintenance ------------------------------------------------
 
 
-def _format_results(results: dict) -> str:
-    """Format ChromaDB query results into readable text."""
-    if not results["ids"] or not results["ids"][0]:
-        return "No results found."
+@svc.tool()
+def backfill_tag_keys() -> str:
+    """One-shot: add tag_<name>: True metadata keys to all existing chunks.
 
-    lines = []
-    for i, (doc, meta, dist) in enumerate(
-        zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        )
-    ):
-        source = meta.get("source", "unknown")
-        tags = meta.get("tags", "")
-        class_name = meta.get("class_name", "")
-        method_name = meta.get("method_name", "")
-        similarity = 1 - dist  # cosine distance -> similarity
+    Older chunks may store tags only in the comma-joined `tags` string, which
+    can't be filtered via ChromaDB metadata `where` clauses. This walks the
+    whole collection and upserts each chunk's metadata with the boolean
+    tag_* keys derived from that string.
+    """
+    existing = collection.get(include=["metadatas", "documents"])
+    ids = existing["ids"]
+    if not ids:
+        return "Collection is empty — nothing to backfill."
 
-        header_parts = [f"[{i + 1}] {source}"]
-        if class_name:
-            header_parts.append(f"class={class_name}")
-        if method_name:
-            header_parts.append(f"method={method_name}")
-        header_parts.append(f"similarity={similarity:.2f}")
-        if tags:
-            header_parts.append(f"tags=[{tags}]")
+    updated = 0
+    BATCH = 5000
+    for i in range(0, len(ids), BATCH):
+        batch_ids = ids[i:i + BATCH]
+        batch_metas = existing["metadatas"][i:i + BATCH]
+        batch_docs = existing["documents"][i:i + BATCH]
 
-        lines.append(" | ".join(header_parts))
-        lines.append(doc[:1500])  # cap chunk display length
-        lines.append("")
+        new_metas = []
+        for meta in batch_metas:
+            tag_str = meta.get("tags", "")
+            tags = [t.strip() for t in tag_str.split(",") if t.strip()]
+            meta = {**meta, **tag_flags(tags)}
+            new_metas.append(meta)
 
-    return "\n".join(lines)
+        collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=new_metas)
+        updated += len(batch_ids)
+
+    return f"Backfilled tag_* keys on {updated} chunks."
 
 
 # ---------------------------------------------------------------------------
-# Plain HTTP /ingest endpoint (non-MCP, for service-to-service reporting)
+# Run
 # ---------------------------------------------------------------------------
-
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-
-async def ingest_endpoint(request: Request) -> JSONResponse:
-    """Receive tool execution payloads from mcp-build / mcp-control."""
-    try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-
-    tool = payload.get("tool")
-    if not tool:
-        return JSONResponse({"error": "missing 'tool' field"}, status_code=400)
-
-    try:
-        result = router.route(payload)
-        logger.info("Ingested %s -> %s (%d chunks)", tool, result["action"], result["chunks"])
-        return JSONResponse(result, status_code=200)
-    except Exception as e:
-        logger.exception("Ingest error for tool=%s", tool)
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-# ---------------------------------------------------------------------------
-# Mount /ingest on the FastMCP app and run
-# ---------------------------------------------------------------------------
-
-from starlette.applications import Starlette
-from starlette.routing import Route, Mount
-
-mcp_app = mcp.http_app("/mcp")
-
-# Build a Starlette app that serves both /ingest and /mcp
-app = Starlette(
-    routes=[
-        Route("/ingest", ingest_endpoint, methods=["POST"]),
-        Mount("/", app=mcp_app),
-    ],
-    lifespan=mcp_app.lifespan,
-)
 
 if __name__ == "__main__":
-    import uvicorn
-
-    logger.info("Starting mcp-knowledge on port %d", PORT)
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    svc.run()
