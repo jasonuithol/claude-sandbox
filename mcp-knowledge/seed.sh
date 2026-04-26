@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # seed.sh — seed the mcp-knowledge database with docs and decompiled assembly
-# Run from the host. Requires valheim-mcp-knowledge (port 5184) and mcp-build (port 5172).
+# Run from the host. Requires valheim-mcp-knowledge (port 5184) and mcp-build (port 5182).
 set -euo pipefail
 
 BASE="http://localhost:5184/mcp"
-BUILD_BASE="http://localhost:5172/mcp"
+BUILD_BASE="http://localhost:5182/mcp"
 DLL_PATH="/workspace/valheim/server/valheim_server_Data/Managed/assembly_valheim.dll"
 
 # ---------------------------------------------------------------------------

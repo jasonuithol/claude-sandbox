@@ -21,9 +21,9 @@ that doesn't fit neatly into documentation.
 ```
 claude-sandbox ecosystem
 │
-├── mcp-build      (port 5172, container)  — build, deploy, package, publish
+├── mcp-build      (port 5182, container)  — build, deploy, package, publish
 ├── mcp-control    (port 5173, host)       — server/client lifecycle
-└── mcp-knowledge  (port 5174, container)  — THIS SERVICE: RAG knowledge base
+└── mcp-knowledge  (port 5184, container)  — THIS SERVICE: RAG knowledge base
 ```
 
 ### Design Principle: Passive Ingest, Active Query
@@ -77,33 +77,20 @@ Every tool execution in mcp-build and mcp-control sends:
 }
 ```
 
-Sent as `POST http://localhost:5174/ingest` (plain HTTP, not MCP). This is a
+Sent as `POST http://localhost:5184/ingest` (plain HTTP, not MCP). This is a
 lightweight sidecar endpoint, not an MCP tool — it doesn't need session
 management or JSON-RPC framing.
 
 ### Reporter Integration (mcp-build / mcp-control)
 
-A small helper added to each service:
+Reporters use `KnowledgeReporter` from the shared `mcp-knowledge-base`
+package. The endpoint URL comes from `$KNOWLEDGE_URL` (set in each
+service's `start-container.sh` to `http://localhost:5184/ingest`).
 
 ```python
-import httpx
-from datetime import datetime
+from mcp_knowledge_base import KnowledgeReporter
 
-_KNOWLEDGE_URL = "http://localhost:5174/ingest"
-
-def _report(tool: str, args: dict, result: str, success: bool):
-    """Fire-and-forget report to mcp-knowledge. Never raises."""
-    try:
-        httpx.post(_KNOWLEDGE_URL, json={
-            "tool": tool,
-            "args": args,
-            "result": result,
-            "success": success,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "service": "mcp-build",  # or "mcp-control"
-        }, timeout=2)
-    except Exception:
-        pass  # knowledge service down — that's fine
+reporter = KnowledgeReporter(service="mcp-build")  # or "mcp-control"
 ```
 
 Called at the end of every tool function:
@@ -115,9 +102,13 @@ async def build(project: str) -> str:
     success, log = await _run_async(...)
     header = "BUILD SUCCEEDED ✓" if success else "BUILD FAILED ✗"
     result = f"{header}\n\n{log}"
-    _report("build", {"project": project}, result, success)  # ← added
+    reporter.report("build", {"project": project}, result, success)
     return result
 ```
+
+The reporter is fire-and-forget and never raises — see
+`mcp_knowledge_base.reporter` for the canonical implementation (5 s
+timeout, tz-aware UTC timestamps).
 
 ### Container layout
 
@@ -308,14 +299,14 @@ Based on `python:3.12-slim-bookworm` (same as mcp-build). Installs:
 
 ### Network
 
-`--network host` — same as mcp-build. Listens on port 5174.
-- MCP endpoint: `http://localhost:5174/mcp` (Claude queries)
-- Ingest endpoint: `http://localhost:5174/ingest` (service-to-service)
+`--network host` — same as mcp-build. Listens on port 5184.
+- MCP endpoint: `http://localhost:5184/mcp` (Claude queries)
+- Ingest endpoint: `http://localhost:5184/ingest` (service-to-service)
 
 ### Registration
 
 ```bash
-claude mcp add valheim-knowledge --transport http http://localhost:5174/mcp
+claude mcp add valheim-knowledge --transport http http://localhost:5184/mcp
 ```
 
 ---
@@ -403,14 +394,14 @@ instead of a connection failure.
 
 ### 5. Large payloads may be silently dropped
 
-The reporter in mcp-build/mcp-control uses a 2-second timeout. Big
-decompile outputs — which are the highest-value payloads — are the most
-likely to exceed that limit and get silently dropped.
+`KnowledgeReporter` uses a 5-second timeout. Big decompile outputs —
+which are the highest-value payloads — are the most likely to exceed
+that limit and get silently dropped.
 
-**Idea:** Bump the reporter timeout to 10 seconds for `decompile_dll`
-payloads specifically (they're already async, so the extra wait doesn't
-block the caller). Or have the `/ingest` endpoint accept the payload
-immediately, return 202, and do the chunking/indexing in a background task.
+**Idea:** Pass a longer `timeout=` when constructing the reporter for
+services that emit large payloads, or have the `/ingest` endpoint accept
+the payload immediately, return 202, and do the chunking/indexing in a
+background task.
 
 ### 6. ~~ChromaDB `$contains` is case-sensitive~~ — misdiagnosed, now fixed
 

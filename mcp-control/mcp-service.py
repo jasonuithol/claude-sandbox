@@ -46,7 +46,7 @@ mcp = FastMCP(
         "Tools for controlling the Valheim server container and client process on the host. "
         "Runs directly on the host — use these for anything that requires visibility into "
         "host processes or container management. "
-        "Build tools are in the separate valheim-build MCP (mcp-build, port 5172)."
+        "Build tools are in the separate valheim-build MCP (mcp-build, port 5182)."
     ),
 )
 

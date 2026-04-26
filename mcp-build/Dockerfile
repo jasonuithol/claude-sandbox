@@ -8,6 +8,7 @@ LABEL description="Valheim mod build tools MCP server"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    git \
     gnupg \
     librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
@@ -41,6 +42,6 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 COPY mcp-service.py .
 
-EXPOSE 5172
+EXPOSE 5182
 
 CMD ["python", "mcp-service.py"]

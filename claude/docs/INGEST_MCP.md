@@ -10,10 +10,10 @@
 ./start-container.sh
 
 # Register with Claude Code
-claude mcp add valheim-knowledge --transport http http://localhost:5174/mcp
+claude mcp add valheim-knowledge --transport http http://localhost:5184/mcp
 ```
 
-Requires mcp-build (port 5172) to be running if you plan to use `seed_decompile`.
+Requires mcp-build (port 5182) to be running if you plan to use `seed_decompile`.
 
 ---
 
@@ -21,8 +21,8 @@ Requires mcp-build (port 5172) to be running if you plan to use `seed_decompile`
 
 | Endpoint | Protocol | Purpose |
 |----------|----------|---------|
-| `http://localhost:5174/mcp` | MCP (JSON-RPC) | Claude queries and maintenance |
-| `http://localhost:5174/ingest` | Plain HTTP POST | Service-to-service tool reporting |
+| `http://localhost:5184/mcp` | MCP (JSON-RPC) | Claude queries and maintenance |
+| `http://localhost:5184/ingest` | Plain HTTP POST | Service-to-service tool reporting |
 
 ---
 
@@ -95,30 +95,22 @@ Routine operations: deploy, package, start/stop server, start/stop client, succe
 
 ### Reporter setup (mcp-build / mcp-control)
 
-Add this to each service:
+Both services use `KnowledgeReporter` from the shared
+`mcp-knowledge-base` package. Construct one near the top of the
+service's main file:
 
 ```python
-import httpx
-from datetime import datetime
+from mcp_knowledge_base import KnowledgeReporter
 
-_KNOWLEDGE_URL = "http://localhost:5174/ingest"
-
-def _report(tool: str, args: dict, result: str, success: bool):
-    """Fire-and-forget report to mcp-knowledge. Never raises."""
-    try:
-        httpx.post(_KNOWLEDGE_URL, json={
-            "tool": tool,
-            "args": args,
-            "result": result,
-            "success": success,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "service": "mcp-build",  # or "mcp-control"
-        }, timeout=2)
-    except Exception:
-        pass
+reporter = KnowledgeReporter(service="mcp-build")  # or "mcp-control"
 ```
 
-Call `_report(...)` at the end of every tool function. If mcp-knowledge is down, nothing breaks.
+`KnowledgeReporter` reads `$KNOWLEDGE_URL` (set in `start-container.sh`
+to `http://localhost:5184/ingest`) and never raises on network failure.
+
+Call `reporter.report(tool, args, result, success)` at the end of every
+tool function — see `mcp-knowledge/INTEGRATE_REPORTERS.md` for the full
+integration shape.
 
 ---
 
@@ -149,8 +141,10 @@ Tags are auto-detected from content. Use them with `ask_tagged` to narrow search
 
 Common tags: `rpc`, `zdo`, `networking`, `inventory`, `status-effect`, `harmony`, `weather`, `emote`, `animation`, `teleport`, `minimap`, `building`, `raid`, `visual-equip`, `bepinex`, `build-error`, `build-fix`, `publish`.
 
-**Case sensitivity:** ChromaDB's `$contains` filter is case-sensitive. Tags
-are stored lowercase, so always pass lowercase tags to `ask_tagged`. The
+**Tag filtering:** ChromaDB's metadata `where` clause has no `$contains`
+operator, so tags are stored as individual boolean keys
+(`tag_rpc: True`, …). `ask_tagged` filters via `{"tag_<name>": True}`;
+tag names are normalised to lowercase with non-alphanumerics → `_`. The
 `ask()` tool (pure semantic search) is unaffected.
 
 ---

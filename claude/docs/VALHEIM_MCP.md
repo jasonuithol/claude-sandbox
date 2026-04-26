@@ -16,9 +16,9 @@ Podman (on host)
 │
 ├── claude-sandbox          Claude Code
 │       │
-│       ├──── HTTP (port 5172) ────────────────────────────────────┐
+│       ├──── HTTP (port 5182) ────────────────────────────────────┐
 │       │                                                           ▼
-│       │                                             mcp-build    (port 5172, container)
+│       │                                             mcp-build    (port 5182, container)
 │       │                                                  │
 │       │                                                  ├── dotnet build     (mod builds)
 │       │                                                  ├── ilspycmd         (decompile DLLs)
@@ -33,9 +33,9 @@ Podman (on host)
 │       │                                                  ├── psutil (Steam/client)      │
 │       │                                                  └── POST /ingest ──────────┐  │
 │       │                                                                               │  │
-│       └──── HTTP (port 5174) ────────────────────────────────────┐                    │  │
+│       └──── HTTP (port 5184) ────────────────────────────────────┐                    │  │
 │                                                                   ▼                    │  │
-│                                                     mcp-knowledge (port 5174, container)◄─┘
+│                                                     mcp-knowledge (port 5184, container)◄─┘
 │                                                          │
 │                                                          ├── ChromaDB    (vector store)
 │                                                          ├── /ingest     (auto-learns from tool use)
@@ -72,7 +72,7 @@ Takes a few minutes on first build.
 ~/Projects/claude-sandbox/mcp-build/start-container.sh
 ```
 
-Starts the container and listens on port 5172.
+Starts the container and listens on port 5182.
 
 ### 3. Start mcp-control (on the host)
 
@@ -101,7 +101,7 @@ restarted, call `refresh_path_map()` to rebuild it without restarting mcp-build.
 
 ## MCP Tools
 
-### Build and Deploy (`valheim-build`, port 5172)
+### Build and Deploy (`valheim-build`, port 5182)
 
 These tools are **blocking** — they run to completion and return the full log.
 
@@ -205,7 +205,7 @@ Use the `Steam_` prefix format for player IDs (e.g. `Steam_44445555666677788`).
 | `start_client(extra_args)` | Start the client via `run_bepinex.sh`. Non-blocking. `extra_args` (list, default `[]`) are appended after all other flags — e.g. `["-skipIntro"]` |
 | `stop_client()` | Stop the client process |
 
-### Knowledge Base (`valheim-knowledge`, port 5174)
+### Knowledge Base (`valheim-knowledge`, port 5184)
 
 RAG-backed knowledge service. Grows automatically from tool use — every tool
 execution in mcp-build and mcp-control reports to mcp-knowledge via
@@ -304,7 +304,7 @@ To test from the host without Claude Code, use the helper scripts:
 source ~/Projects/claude-sandbox/.venv/bin/activate
 python3 - <<'EOF'
 import httpx, json
-base = 'http://localhost:5172/mcp'  # or 5173 for mcp-control
+base = 'http://localhost:5182/mcp'  # or 5173 for mcp-control, 5184 for mcp-knowledge
 h = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}
 r = httpx.post(base, headers=h, json={'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'test','version':'0'}}})
 h['mcp-session-id'] = r.headers['mcp-session-id']
@@ -320,13 +320,13 @@ EOF
 
 | File | Purpose |
 |------|---------|
-| `mcp-build/mcp-service.py` | Build MCP implementation (container, port 5172) |
+| `mcp-build/mcp-service.py` | Build MCP implementation (container, port 5182) |
 | `mcp-build/Dockerfile` | Build MCP container image definition |
 | `mcp-build/build-container.sh` | Build the container image |
 | `mcp-build/start-container.sh` | Start the container |
 | `mcp-control/mcp-service.py` | Control MCP implementation (host process, port 5173) |
 | `mcp-control/start-mcp-service.sh` | Start the control MCP server on the host |
-| `mcp-knowledge/` | Knowledge RAG service (container, port 5174) — see `mcp-knowledge/CLAUDE.md` |
+| `mcp-knowledge/` | Knowledge RAG service (container, port 5184) — see `mcp-knowledge/CLAUDE.md` |
 
 ---
 
@@ -342,5 +342,5 @@ EOF
 - Path environment variables can override default mount points:
   `VALHEIM_SERVER_DIR`, `VALHEIM_CLIENT_DIR`, `VALHEIM_PROJECT_DIR`, `VALHEIM_LOGS_DIR`.
 - All tool executions in mcp-build and mcp-control are reported to
-  mcp-knowledge (`localhost:5174/ingest`) via fire-and-forget HTTP POST.
+  mcp-knowledge (`localhost:5184/ingest`) via fire-and-forget HTTP POST.
   If mcp-knowledge is not running, the reports are silently dropped.

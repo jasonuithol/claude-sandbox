@@ -1,4 +1,4 @@
-curl -s -X POST http://localhost:5172/mcp \
+curl -s -X POST http://localhost:5182/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Mcp-Session-Id: $MCP_SESSION_ID" \

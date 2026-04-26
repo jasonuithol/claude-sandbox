@@ -6,10 +6,10 @@ Runs inside a Docker container. Exposes mod build, deploy, package,
 decompile, and SVG conversion tools to Claude Code.
 
 Register with Claude Code (run this inside the claude-sandbox container):
-    claude mcp add valheim-build --transport http http://localhost:5172/mcp
+    claude mcp add valheim-build --transport http http://localhost:5182/mcp
 
 Or on the host directly:
-    claude mcp add valheim-build --transport http http://localhost:5172/mcp
+    claude mcp add valheim-build --transport http http://localhost:5182/mcp
 """
 
 import asyncio
@@ -493,9 +493,9 @@ def refresh_path_map() -> str:
 if __name__ == "__main__":
     print("Building initial path map...")
     _build_path_map()
-    print("Starting valheim-build MCP on http://0.0.0.0:5172")
+    print("Starting valheim-build MCP on http://0.0.0.0:5182")
     print()
     print("Register with Claude Code:")
-    print("  claude mcp add valheim-build --transport http http://localhost:5172/mcp")
+    print("  claude mcp add valheim-build --transport http http://localhost:5182/mcp")
     print()
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=5172)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=5182)
