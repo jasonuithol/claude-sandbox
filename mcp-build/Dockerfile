@@ -8,7 +8,6 @@ LABEL description="Valheim mod build tools MCP server"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    git \
     gnupg \
     librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +34,7 @@ RUN dotnet tool install -g ilspycmd --version 9.1.0.7988
 RUN pip install --no-cache-dir \
     fastmcp \
     httpx \
-    "mcp-knowledge-base @ git+https://github.com/jasonuithol/mcp-knowledge-base.git@v0.2.1"
+    "mcp-knowledge-base @ https://github.com/jasonuithol/mcp-knowledge-base/archive/refs/tags/v0.2.1.tar.gz"
 
 # ── App ────────────────────────────────────────────────────────────────────────
 

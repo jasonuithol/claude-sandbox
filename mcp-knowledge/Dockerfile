@@ -1,8 +1,8 @@
 FROM docker.io/nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
-# Install Python and git (git is needed by pip to fetch mcp-knowledge-base
-# from GitHub via the PEP 508 direct-reference URL in requirements.txt)
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git \
+# Install Python. mcp-knowledge-base is fetched as a release tarball over
+# plain HTTPS (see requirements.txt), so no git client is required.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/mcp-knowledge
