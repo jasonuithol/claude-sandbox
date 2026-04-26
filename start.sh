@@ -31,6 +31,10 @@ if [ ! -d "$MCP_STEAM_DIR" ]; then
     exit 1
 fi
 
+# Run host-side setup scripts (idempotent — cheap on repeat runs).
+"$MCP_VALHEIM_DIR/setup.sh"
+"$MCP_STEAM_DIR/setup.sh"
+
 echo "Starting mcp-valheim build..."
 "$MCP_VALHEIM_DIR/build/start-container.sh"
 
