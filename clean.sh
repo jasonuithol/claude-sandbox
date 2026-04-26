@@ -7,8 +7,8 @@
 # hurting rather than helping.
 #
 # Host-mounted state (e.g. mcp-valheim/knowledge/knowledge/ ChromaDB data)
-# is NOT touched — only the containers themselves. mcp-control is a host
-# process, not a container; use ./stop.sh to stop it.
+# is NOT touched — only the containers themselves. valheim-control and
+# mcp-steam are host processes, not containers; use ./stop.sh to stop them.
 set -euo pipefail
 
 remove_one() {

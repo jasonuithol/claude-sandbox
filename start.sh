@@ -20,16 +20,27 @@ fi
 MCP_VALHEIM_DIR="$HOME/Projects/mcp-valheim"
 if [ ! -d "$MCP_VALHEIM_DIR" ]; then
     echo "Error: $MCP_VALHEIM_DIR not found."
-    echo "  git clone <mcp-valheim-repo> $MCP_VALHEIM_DIR"
+    echo "  git clone https://github.com/jasonuithol/mcp-valheim $MCP_VALHEIM_DIR"
     exit 1
 fi
 
-echo "Starting mcp-valheim service..."
-"$MCP_VALHEIM_DIR/service/start-container.sh"
+MCP_STEAM_DIR="$HOME/Projects/mcp-steam"
+if [ ! -d "$MCP_STEAM_DIR" ]; then
+    echo "Error: $MCP_STEAM_DIR not found."
+    echo "  git clone https://github.com/jasonuithol/mcp-steam $MCP_STEAM_DIR"
+    exit 1
+fi
 
-echo "Starting mcp-control..."
-"$SCRIPT_DIR/mcp-control/start-mcp-service.sh" &
-CONTROL_PID=$!
+echo "Starting mcp-valheim build..."
+"$MCP_VALHEIM_DIR/build/start-container.sh"
+
+echo "Starting mcp-valheim control..."
+"$MCP_VALHEIM_DIR/control/start-mcp-service.sh" &
+VALHEIM_CONTROL_PID=$!
+
+echo "Starting mcp-steam..."
+"$MCP_STEAM_DIR/start-mcp-service.sh" &
+STEAM_PID=$!
 
 echo "Starting mcp-valheim knowledge..."
 "$MCP_VALHEIM_DIR/knowledge/start-container.sh"
@@ -41,7 +52,7 @@ echo "Launching Claude sandbox for project: $PROJECT"
 "$SCRIPT_DIR/claude/start-container.sh" "$PROJECT"
 
 echo "Claude exited. Stopping MCP services..."
-kill "$CONTROL_PID" 2>/dev/null || true
+kill "$VALHEIM_CONTROL_PID" "$STEAM_PID" 2>/dev/null || true
 # Stop (don't remove) so the next start.sh revives the same containers and
 # preserves any in-container state. Use ./clean.sh for a full teardown.
 docker stop valheim-mcp-build valheim-mcp-knowledge 2>/dev/null || true

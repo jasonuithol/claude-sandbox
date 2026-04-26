@@ -24,13 +24,21 @@ stop_container() {
 
 stop_container valheim-mcp-build
 
-# mcp-control is a host process bound to port 5173, not a container.
-echo "Stopping mcp-control (port 5173)..."
-if [ "$FORCE" = true ]; then
-    fuser -k -KILL 5173/tcp 2>/dev/null && echo "  killed" || echo "  not running"
-else
-    fuser -k -TERM 5173/tcp 2>/dev/null && echo "  stopped" || echo "  not running"
-fi
+# valheim-control and mcp-steam are host processes bound to ports 5173/5174,
+# not containers.
+stop_host_port() {
+    local label="$1"
+    local port="$2"
+    echo "Stopping $label (port $port)..."
+    if [ "$FORCE" = true ]; then
+        fuser -k -KILL "$port/tcp" 2>/dev/null && echo "  killed" || echo "  not running"
+    else
+        fuser -k -TERM "$port/tcp" 2>/dev/null && echo "  stopped" || echo "  not running"
+    fi
+}
+
+stop_host_port valheim-control 5173
+stop_host_port mcp-steam 5174
 
 stop_container valheim-mcp-knowledge
 
