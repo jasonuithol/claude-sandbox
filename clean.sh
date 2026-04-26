@@ -6,9 +6,9 @@
 # an image, or when a container's state is wedged and revive semantics are
 # hurting rather than helping.
 #
-# Host-mounted state (e.g. mcp-knowledge/knowledge/ ChromaDB data) is NOT
-# touched — only the containers themselves. mcp-control is a host process,
-# not a container; use ./stop.sh to stop it.
+# Host-mounted state (e.g. mcp-valheim/knowledge/knowledge/ ChromaDB data)
+# is NOT touched — only the containers themselves. mcp-control is a host
+# process, not a container; use ./stop.sh to stop it.
 set -euo pipefail
 
 remove_one() {

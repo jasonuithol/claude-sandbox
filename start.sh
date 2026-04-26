@@ -17,15 +17,22 @@ if [ ! -d "$HOME/Projects/$PROJECT" ]; then
     exit 1
 fi
 
-echo "Starting mcp-build..."
-"$SCRIPT_DIR/mcp-build/start-container.sh"
+MCP_VALHEIM_DIR="$HOME/Projects/mcp-valheim"
+if [ ! -d "$MCP_VALHEIM_DIR" ]; then
+    echo "Error: $MCP_VALHEIM_DIR not found."
+    echo "  git clone <mcp-valheim-repo> $MCP_VALHEIM_DIR"
+    exit 1
+fi
+
+echo "Starting mcp-valheim service..."
+"$MCP_VALHEIM_DIR/service/start-container.sh"
 
 echo "Starting mcp-control..."
 "$SCRIPT_DIR/mcp-control/start-mcp-service.sh" &
 CONTROL_PID=$!
 
-echo "Starting mcp-knowledge..."
-"$SCRIPT_DIR/mcp-knowledge/start-container.sh"
+echo "Starting mcp-valheim knowledge..."
+"$MCP_VALHEIM_DIR/knowledge/start-container.sh"
 
 # Give the host services a moment to bind their ports
 sleep 2
